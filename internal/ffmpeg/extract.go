@@ -1,9 +1,11 @@
 package ffmpeg
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -29,10 +31,20 @@ func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string,
 	args := buildFrameArgs(videoPath, subPath, at)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
 	hideWindow(cmd)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	data, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("ffmpeg extract frame: %w", err)
+		return "", fmt.Errorf("ffmpeg extract frame: %w\nstderr: %s\nargs: %v", err, stderr.String(), args)
 	}
+
+	// Log stderr for debugging (ffmpeg often prints warnings there even on success)
+	if stderrStr := stderr.String(); stderrStr != "" {
+		fmt.Fprintf(os.Stderr, "[ffmpeg stderr] %s\n", stderrStr)
+	}
+	fmt.Fprintf(os.Stderr, "[ffmpeg] args: %v\n", args)
+
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 

@@ -95,8 +95,8 @@ export const useProjectStore = defineStore('project', () => {
 
     if (scannedFile.videoPath) {
       try {
-        const durationNs = await editorService.getVideoDuration(scannedFile.videoPath)
-        previewStore.videoDurationMs = durationToMs(durationNs)
+        const durationMs = await editorService.getVideoDuration(scannedFile.videoPath)
+        previewStore.videoDurationMs = durationMs
         debug.info(`  video duration: ${previewStore.videoDurationMs}ms`)
       } catch (err) {
         debug.error(`  video duration failed: ${err}`)

@@ -107,6 +107,11 @@ onMounted(() => {
     message.error(t('ffmpeg.error', { message: error }))
   })
 
+  // Backend debug logs
+  window.runtime.EventsOn('debug:log', (msg: unknown) => {
+    debug.info(`[backend] ${msg}`)
+  })
+
   // Poll ffmpeg status to catch race condition where event fired before mount
   pollFfmpegReady()
 })

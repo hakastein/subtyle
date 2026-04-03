@@ -214,7 +214,12 @@ func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []par
 	modified.Styles = styles
 
 	at := time.Duration(atMs) * time.Millisecond
-	return a.previewGen.GenerateFrame(a.ctx, videoPath, &modified, at)
+	result, err := a.previewGen.GenerateFrame(a.ctx, videoPath, &modified, at)
+	if err != nil {
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("GeneratePreviewFrame error: %v", err))
+		return nil, err
+	}
+	return result, nil
 }
 
 // SaveFile saves the styles for the given file ID. For embedded-source files,
