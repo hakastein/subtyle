@@ -124,8 +124,8 @@ func buildFrameArgs(videoPath, subPath string, at time.Duration) []string {
 	ts := formatDuration(at)
 	vf := fmt.Sprintf("subtitles='%s'", escapeFilterPath(subPath))
 	return []string{
-		"-ss", ts,
 		"-i", videoPath,
+		"-ss", ts,
 		"-vf", vf,
 		"-frames:v", "1",
 		"-f", "image2",
