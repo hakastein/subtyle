@@ -10,7 +10,6 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"subtitles-editor/internal/editor"
 	"subtitles-editor/internal/ffmpeg"
 	i18nPkg "subtitles-editor/internal/i18n"
 	"subtitles-editor/internal/parser"
@@ -290,6 +289,3 @@ func (a *App) GetVideoDuration(videoPath string) (int64, error) {
 	}
 	return dur.Milliseconds(), nil
 }
-
-// Ensure editor package is used (it is imported for potential future use in bindings).
-var _ = editor.ApplyChange
