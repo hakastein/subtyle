@@ -1,0 +1,21 @@
+# Build
+build/
+dist/
+node_modules/
+frontend/dist/*
+!frontend/dist/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Wails
+frontend/wailsjs/
+
+# Superpowers
+.superpowers/
