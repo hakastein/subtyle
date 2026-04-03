@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -21,6 +22,47 @@ func TestBuildFrameArgs(t *testing.T) {
 		if !found {
 			t.Errorf("expected arg %q in frame args: %v", req, args)
 		}
+	}
+}
+
+func TestEscapeFilterPath(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{"unix path", "/tmp/sub.ass", "/tmp/sub.ass"},
+		{"windows path", `C:\Users\test\sub.ass`, "C\\:/Users/test/sub.ass"},
+		{"windows with spaces", `C:\Users\my user\sub file.ass`, "C\\:/Users/my user/sub file.ass"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := escapeFilterPath(tt.input)
+			if got != tt.expect {
+				t.Errorf("escapeFilterPath(%q) = %q, want %q", tt.input, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestBuildFrameArgsWindowsPath(t *testing.T) {
+	args := buildFrameArgs(`C:\Videos\ep01.mkv`, `C:\Temp\sub.ass`, 5*time.Second)
+	// The -vf arg should contain escaped path
+	var vfArg string
+	for i, a := range args {
+		if a == "-vf" && i+1 < len(args) {
+			vfArg = args[i+1]
+		}
+	}
+	if vfArg == "" {
+		t.Fatal("no -vf argument found")
+	}
+	// Should contain escaped colon and forward slashes
+	if !strings.Contains(vfArg, "C\\:") {
+		t.Errorf("-vf arg should escape colon: %q", vfArg)
+	}
+	if strings.Contains(vfArg, "\\T") {
+		t.Errorf("-vf arg should not have backslashes before path segments: %q", vfArg)
 	}
 }
 

@@ -70,7 +70,7 @@ func (e *Extractor) VideoDuration(ctx context.Context, videoPath string) (time.D
 // buildFrameArgs constructs the ffmpeg argument list for frame extraction.
 func buildFrameArgs(videoPath, subPath string, at time.Duration) []string {
 	ts := formatDuration(at)
-	vf := fmt.Sprintf("subtitles=%s", subPath)
+	vf := fmt.Sprintf("subtitles='%s'", escapeFilterPath(subPath))
 	return []string{
 		"-ss", ts,
 		"-i", videoPath,
@@ -79,6 +79,17 @@ func buildFrameArgs(videoPath, subPath string, at time.Duration) []string {
 		"-f", "image2",
 		"pipe:1",
 	}
+}
+
+// escapeFilterPath escapes a file path for use in ffmpeg filter expressions.
+// On Windows, backslashes and colons need special escaping.
+func escapeFilterPath(path string) string {
+	// Replace backslashes with forward slashes (ffmpeg accepts both on Windows)
+	path = strings.ReplaceAll(path, "\\", "/")
+	// Escape colons (C: drive letters) and single quotes for ffmpeg filter syntax
+	path = strings.ReplaceAll(path, ":", "\\:")
+	path = strings.ReplaceAll(path, "'", "'\\''")
+	return path
 }
 
 // buildListTracksArgs constructs the ffmpeg argument list for listing streams.
