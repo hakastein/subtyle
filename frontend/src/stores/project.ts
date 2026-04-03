@@ -227,8 +227,8 @@ export const useProjectStore = defineStore('project', () => {
       savedAt: new Date().toISOString(),
       dirty: dirty.value,
       files,
-      undoStack: structuredClone(undoStore.undoStack.value),
-      redoStack: structuredClone(undoStore.redoStack.value),
+      undoStack: structuredClone(undoStore.undoStack),
+      redoStack: structuredClone(undoStore.redoStack),
       activeFileId: activeFile.value?.id ?? '',
       selectedStyles: selectedStyleKeys.value.slice(),
     }

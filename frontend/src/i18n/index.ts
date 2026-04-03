@@ -14,7 +14,7 @@ export default i18n
 export function setLocale(locale: string): void {
   const supported = ['en', 'ru']
   const resolved = supported.includes(locale) ? locale : 'en'
-  i18n.global.locale.value = resolved
+  i18n.global.locale.value = resolved as 'en' | 'ru'
   localStorage.setItem('locale', resolved)
 }
 
