@@ -13,7 +13,7 @@ import (
 var assets embed.FS
 
 func main() {
-	app := &App{}
+	app := newApp()
 
 	err := wails.Run(&options.App{
 		Title:  "Subtitle Style Editor",
