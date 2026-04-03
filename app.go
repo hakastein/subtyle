@@ -78,6 +78,11 @@ func (a *App) initFFmpeg() {
 	runtime.EventsEmit(a.ctx, "ffmpeg:ready")
 }
 
+// IsFfmpegReady returns true if ffmpeg has been found or downloaded.
+func (a *App) IsFfmpegReady() bool {
+	return a.extractor != nil
+}
+
 // GetLocale returns the detected system locale ("en" or "ru").
 func (a *App) GetLocale() string {
 	return i18nPkg.DetectLocale()

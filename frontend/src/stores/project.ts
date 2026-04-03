@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import type { ScannedFile, SubtitleStyle, SubtitleEvent, UndoChange, ProjectState, FileState } from '@/services/types'
 import { useUndoStore } from './undo'
 import { usePreviewStore } from './preview'
+import { useDebugStore } from './debug'
 import * as scanService from '@/services/scan'
 import * as parserService from '@/services/parser'
 import * as editorService from '@/services/editor'
@@ -25,6 +26,7 @@ let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 export const useProjectStore = defineStore('project', () => {
   const undoStore = useUndoStore()
   const previewStore = usePreviewStore()
+  const debug = useDebugStore()
 
   const folderPath = ref('')
   const scannedFiles = ref<ScannedFile[]>([])
@@ -58,6 +60,7 @@ export const useProjectStore = defineStore('project', () => {
     const path = await scanService.openFolder()
     if (!path) return
 
+    debug.info(`openFolder: ${path}`)
     folderPath.value = path
     scannedFiles.value = []
     loadedFiles.value = new Map()
@@ -68,10 +71,16 @@ export const useProjectStore = defineStore('project', () => {
 
     const result = await scanService.scanFolder(path)
     scannedFiles.value = result.files
+    debug.info(`scanFolder: found ${result.files.length} files`)
+    for (const f of result.files) {
+      debug.info(`  ${f.type}: ${f.path} → video: ${f.videoPath || 'none'}`)
+    }
   }
 
   async function loadFile(scannedFile: ScannedFile): Promise<LoadedFile> {
+    debug.info(`loadFile: ${scannedFile.path} (video: ${scannedFile.videoPath || 'none'})`)
     const parsed = await parserService.parseFile(scannedFile.path)
+    debug.info(`  parsed: ${parsed.styles.length} styles, ${parsed.events.length} events`)
     const loaded: LoadedFile = {
       id: parsed.id,
       path: parsed.path,
@@ -88,8 +97,9 @@ export const useProjectStore = defineStore('project', () => {
       try {
         const durationNs = await editorService.getVideoDuration(scannedFile.videoPath)
         previewStore.videoDurationMs = durationToMs(durationNs)
-      } catch {
-        // ignore if video duration unavailable
+        debug.info(`  video duration: ${previewStore.videoDurationMs}ms`)
+      } catch (err) {
+        debug.error(`  video duration failed: ${err}`)
       }
     }
 

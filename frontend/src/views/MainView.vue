@@ -4,26 +4,37 @@ import { useI18n } from 'vue-i18n'
 import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
 import { usePreviewStore } from '@/stores/preview'
+import { useDebugStore } from '@/stores/debug'
 import {
   onFFmpegReady,
   onFFmpegDownloading,
   onFFmpegProgress,
   onFFmpegError,
 } from '@/services/ffmpeg'
+import * as projectService from '@/services/project'
 import Toolbar from '@/components/Toolbar.vue'
 import FileTree from '@/components/FileTree.vue'
 import StyleEditor from '@/components/StyleEditor.vue'
 import PreviewArea from '@/components/PreviewArea.vue'
+import DebugPanel from '@/components/DebugPanel.vue'
 
 const { t } = useI18n()
 const message = useMessage()
 const projectStore = useProjectStore()
 const previewStore = usePreviewStore()
+const debug = useDebugStore()
 
 // Keyboard shortcuts
 function handleKeydown(e: KeyboardEvent) {
   const isMac = navigator.platform.toLowerCase().includes('mac')
   const ctrl = isMac ? e.metaKey : e.ctrlKey
+
+  // F12 toggles debug panel (no ctrl needed)
+  if (e.key === 'F12') {
+    e.preventDefault()
+    debug.toggle()
+    return
+  }
 
   if (!ctrl) return
 
@@ -46,17 +57,39 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+async function pollFfmpegReady() {
+  // Poll backend directly in case event was emitted before we mounted
+  try {
+    const ready = await projectService.isFfmpegReady()
+    debug.info(`ffmpeg poll: ready=${ready}`)
+    if (ready) {
+      previewStore.ffmpegReady = true
+      previewStore.ffmpegDownloading = false
+      return
+    }
+  } catch (err) {
+    debug.error(`ffmpeg poll failed: ${err}`)
+  }
+
+  // Not ready yet — keep polling every 500ms
+  setTimeout(pollFfmpegReady, 500)
+}
+
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
 
+  debug.info('MainView mounted, registering ffmpeg events')
+
   // Register ffmpeg event listeners
   onFFmpegReady(() => {
+    debug.info('ffmpeg:ready event received')
     previewStore.ffmpegReady = true
     previewStore.ffmpegDownloading = false
     message.success(t('ffmpeg.ready'))
   })
 
   onFFmpegDownloading(() => {
+    debug.info('ffmpeg:downloading event received')
     previewStore.ffmpegDownloading = true
     previewStore.ffmpegProgress = 0
     message.info(t('ffmpeg.downloading'))
@@ -69,9 +102,13 @@ onMounted(() => {
   })
 
   onFFmpegError((error: string) => {
+    debug.error(`ffmpeg:error event: ${error}`)
     previewStore.ffmpegDownloading = false
     message.error(t('ffmpeg.error', { message: error }))
   })
+
+  // Poll ffmpeg status to catch race condition where event fired before mount
+  pollFfmpegReady()
 })
 
 onUnmounted(() => {
@@ -93,6 +130,7 @@ onUnmounted(() => {
         <StyleEditor />
       </aside>
     </div>
+    <DebugPanel />
   </div>
 </template>
 

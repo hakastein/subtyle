@@ -18,6 +18,7 @@ declare global {
           Autosave(state: ProjectState): Promise<void>
           DeleteAutosave(): Promise<void>
           GetVideoDuration(videoPath: string): Promise<number>
+          IsFfmpegReady(): Promise<boolean>
         }
       }
     }

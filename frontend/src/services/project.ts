@@ -4,3 +4,4 @@ export async function checkAutosave(): Promise<ProjectState | null> { return win
 export async function restoreProject(): Promise<ProjectState> { return window.go.main.App.RestoreProject() }
 export async function autosave(state: ProjectState): Promise<void> { return window.go.main.App.Autosave(state) }
 export async function deleteAutosave(): Promise<void> { return window.go.main.App.DeleteAutosave() }
+export async function isFfmpegReady(): Promise<boolean> { return window.go.main.App.IsFfmpegReady() }

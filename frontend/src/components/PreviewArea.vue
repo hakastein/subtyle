@@ -4,12 +4,14 @@ import { useI18n } from 'vue-i18n'
 import { NSpin, NText } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
 import { usePreviewStore } from '@/stores/preview'
+import { useDebugStore } from '@/stores/debug'
 import * as editorService from '@/services/editor'
 import { durationToMs } from '@/services/types'
 import Timeline from './Timeline.vue'
 import CssSubtitleOverlay from './CssSubtitleOverlay.vue'
 
 const { t } = useI18n()
+const debug = useDebugStore()
 const projectStore = useProjectStore()
 const previewStore = usePreviewStore()
 
@@ -46,12 +48,17 @@ function schedulePreview() {
 async function generatePreview() {
   const file = activeFile.value
   const style = currentStyle.value
-  if (!file || !style || !file.videoPath || !previewStore.ffmpegReady) return
+
+  if (!file) { debug.info('preview: skip — no active file'); return }
+  if (!style) { debug.info('preview: skip — no style selected'); return }
+  if (!file.videoPath) { debug.warn('preview: skip — no videoPath on file ' + file.id); return }
+  if (!previewStore.ffmpegReady) { debug.warn('preview: skip — ffmpeg not ready'); return }
 
   const atMs = currentEvent.value
     ? durationToMs(currentEvent.value.startTime)
     : previewStore.currentTimeMs
 
+  debug.info(`preview: requesting frame file=${file.id} video=${file.videoPath} at=${atMs}ms styles=${file.modifiedStyles.length}`)
   previewStore.setLoading(true)
   try {
     const result = await editorService.generatePreviewFrame(
@@ -60,8 +67,11 @@ async function generatePreview() {
       file.modifiedStyles,
       atMs,
     )
+    debug.info(`preview: frame received, base64 length=${result.base64Png.length} tc=${result.timecode}`)
     previewStore.setFrame(result.base64Png, result.timecode)
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    debug.error(`preview: frame generation failed — ${msg}`)
     previewStore.setLoading(false)
   }
 }
