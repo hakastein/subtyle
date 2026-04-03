@@ -28,6 +28,7 @@ func NewExtractor(binPath string) *Extractor {
 func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string, at time.Duration) (string, error) {
 	args := buildFrameArgs(videoPath, subPath, at)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
+	hideWindow(cmd)
 	data, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("ffmpeg extract frame: %w", err)
@@ -39,6 +40,7 @@ func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string,
 func (e *Extractor) ListTracks(ctx context.Context, videoPath string) ([]scan.TrackInfo, error) {
 	args := buildListTracksArgs(videoPath)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
+	hideWindow(cmd)
 	// ffmpeg prints stream info to stderr
 	stderr, err := cmd.CombinedOutput()
 	// ffmpeg returns non-zero when given no output; that's expected
@@ -53,6 +55,7 @@ func (e *Extractor) ListTracks(ctx context.Context, videoPath string) ([]scan.Tr
 func (e *Extractor) ExtractTrack(ctx context.Context, videoPath string, trackIndex int, outputPath string) error {
 	args := buildExtractTrackArgs(videoPath, trackIndex, outputPath)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
+	hideWindow(cmd)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("ffmpeg extract track: %w\n%s", err, out)
 	}
@@ -63,6 +66,7 @@ func (e *Extractor) ExtractTrack(ctx context.Context, videoPath string, trackInd
 func (e *Extractor) VideoDuration(ctx context.Context, videoPath string) (time.Duration, error) {
 	args := buildListTracksArgs(videoPath)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
+	hideWindow(cmd)
 	stderr, _ := cmd.CombinedOutput()
 	return parseDuration(string(stderr))
 }
