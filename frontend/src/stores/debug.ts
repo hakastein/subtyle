@@ -14,7 +14,7 @@ export const useDebugStore = defineStore('debug', () => {
 
   function log(level: DebugLogEntry['level'], message: string): void {
     const entry: DebugLogEntry = {
-      time: new Date().toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 3 }),
+      time: new Date().toISOString().slice(11, 23),
       level,
       message,
     }
