@@ -147,11 +147,9 @@ watch(
         </div>
       </div>
 
-      <!-- No video / ffmpeg not ready -->
-      <div v-else class="preview-empty">
-        <NText depth="3">
-          {{ !activeFile?.videoPath ? t('preview.noVideo') : t('preview.ffmpegMissing') }}
-        </NText>
+      <!-- No selection — gradient placeholder -->
+      <div v-else class="css-preview-wrapper">
+        <div class="css-preview-stage" />
       </div>
     </div>
 
