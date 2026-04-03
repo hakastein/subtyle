@@ -58,6 +58,11 @@ func (a *App) initFFmpeg() {
 	if path := a.ffmpegMgr.Find(); path != "" {
 		a.extractor = ffmpeg.NewExtractor(path)
 		a.previewGen = preview.NewGenerator(a.extractor)
+		diag := a.extractor.Diagnose(a.ctx)
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ffmpeg: %s | subtitles filter: %v | libass: %v", diag.Version, diag.HasSubtitlesFilter, diag.HasLibass))
+		if !diag.HasSubtitlesFilter {
+			runtime.EventsEmit(a.ctx, "debug:log", "WARNING: ffmpeg does not have subtitles filter — subtitle overlay will not work!")
+		}
 		runtime.EventsEmit(a.ctx, "ffmpeg:ready")
 		return
 	}
@@ -75,12 +80,25 @@ func (a *App) initFFmpeg() {
 	path := a.ffmpegMgr.BinPath()
 	a.extractor = ffmpeg.NewExtractor(path)
 	a.previewGen = preview.NewGenerator(a.extractor)
+	diag := a.extractor.Diagnose(a.ctx)
+	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ffmpeg downloaded: %s | subtitles filter: %v | libass: %v", diag.Version, diag.HasSubtitlesFilter, diag.HasLibass))
+	if !diag.HasSubtitlesFilter {
+		runtime.EventsEmit(a.ctx, "debug:log", "WARNING: downloaded ffmpeg does not have subtitles filter!")
+	}
 	runtime.EventsEmit(a.ctx, "ffmpeg:ready")
 }
 
 // IsFfmpegReady returns true if ffmpeg has been found or downloaded.
 func (a *App) IsFfmpegReady() bool {
 	return a.extractor != nil
+}
+
+// GetFfmpegDiag returns diagnostic info about the ffmpeg binary.
+func (a *App) GetFfmpegDiag() *ffmpeg.DiagInfo {
+	if a.extractor == nil {
+		return &ffmpeg.DiagInfo{Path: "not found"}
+	}
+	return a.extractor.Diagnose(a.ctx)
 }
 
 // GetLocale returns the detected system locale ("en" or "ru").

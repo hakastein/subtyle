@@ -19,6 +19,13 @@ declare global {
           DeleteAutosave(): Promise<void>
           GetVideoDuration(videoPath: string): Promise<number>
           IsFfmpegReady(): Promise<boolean>
+          GetFfmpegDiag(): Promise<{
+            path: string
+            version: string
+            hasSubtitlesFilter: boolean
+            hasLibass: boolean
+            filters: string
+          }>
         }
       }
     }

@@ -83,6 +83,42 @@ func (e *Extractor) VideoDuration(ctx context.Context, videoPath string) (time.D
 	return parseDuration(string(stderr))
 }
 
+// DiagInfo holds diagnostic information about the ffmpeg binary.
+type DiagInfo struct {
+	Path              string `json:"path"`
+	Version           string `json:"version"`
+	HasSubtitlesFilter bool   `json:"hasSubtitlesFilter"`
+	HasLibass         bool   `json:"hasLibass"`
+	Filters           string `json:"filters"` // raw output for debug
+}
+
+// Diagnose checks ffmpeg capabilities and returns diagnostic info.
+func (e *Extractor) Diagnose(ctx context.Context) *DiagInfo {
+	info := &DiagInfo{Path: e.binPath}
+
+	// Get version
+	cmd := exec.CommandContext(ctx, e.binPath, "-version")
+	hideWindow(cmd)
+	if out, err := cmd.Output(); err == nil {
+		lines := strings.SplitN(string(out), "\n", 2)
+		if len(lines) > 0 {
+			info.Version = strings.TrimSpace(lines[0])
+		}
+	}
+
+	// Check filters
+	cmd = exec.CommandContext(ctx, e.binPath, "-filters")
+	hideWindow(cmd)
+	if out, err := cmd.CombinedOutput(); err == nil {
+		output := string(out)
+		info.Filters = output
+		info.HasSubtitlesFilter = strings.Contains(output, "subtitles")
+		info.HasLibass = strings.Contains(output, "libass")
+	}
+
+	return info
+}
+
 // buildFrameArgs constructs the ffmpeg argument list for frame extraction.
 func buildFrameArgs(videoPath, subPath string, at time.Duration) []string {
 	ts := formatDuration(at)

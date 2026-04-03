@@ -65,6 +65,20 @@ async function pollFfmpegReady() {
     if (ready) {
       previewStore.ffmpegReady = true
       previewStore.ffmpegDownloading = false
+      // Run diagnostics
+      try {
+        const diag = await window.go.main.App.GetFfmpegDiag()
+        debug.info(`ffmpeg path: ${diag.path}`)
+        debug.info(`ffmpeg version: ${diag.version}`)
+        debug.info(`ffmpeg subtitles filter: ${diag.hasSubtitlesFilter}`)
+        debug.info(`ffmpeg libass: ${diag.hasLibass}`)
+        if (!diag.hasSubtitlesFilter) {
+          debug.error('ffmpeg does NOT support subtitles filter — subtitle overlay will not work!')
+          message.warning('ffmpeg does not support subtitle rendering (missing libass)', { duration: 10000 })
+        }
+      } catch (err) {
+        debug.error(`ffmpeg diag failed: ${err}`)
+      }
       return
     }
   } catch (err) {
