@@ -1,0 +1,23 @@
+{
+  "app": { "title": "Редактор стилей субтитров" },
+  "toolbar": { "open": "Открыть папку", "save": "Сохранить", "undo": "Отменить", "redo": "Повторить" },
+  "fileTree": { "title": "Файлы и стили", "noFiles": "Нет загруженных файлов. Откройте папку для начала работы.", "embedded": "встроенные" },
+  "editor": {
+    "title": "Редактор стилей", "noSelection": "Выберите стиль для редактирования",
+    "multipleSelected": "Выбрано стилей: {count}",
+    "fontName": "Шрифт", "fontSize": "Размер",
+    "bold": "Жирный", "italic": "Курсив", "underline": "Подчёркивание", "strikeout": "Зачёркивание",
+    "primaryColour": "Основной цвет", "secondaryColour": "Доп. цвет",
+    "outlineColour": "Цвет обводки", "backColour": "Цвет фона",
+    "outline": "Обводка", "shadow": "Тень",
+    "scaleX": "Масштаб X", "scaleY": "Масштаб Y",
+    "spacing": "Интервал", "angle": "Угол",
+    "alignment": "Выравнивание",
+    "marginL": "Отступ Л", "marginR": "Отступ П", "marginV": "Отступ В"
+  },
+  "preview": { "title": "Превью", "noVideo": "Видеофайл не привязан", "loading": "Генерация превью...", "ffmpegMissing": "ffmpeg недоступен для превью" },
+  "timeline": { "noEvents": "Нет событий для выбранного стиля" },
+  "ffmpeg": { "downloading": "ffmpeg не найден, скачиваю...", "progress": "Скачивание ffmpeg: {percent}%", "ready": "ffmpeg готов", "error": "Ошибка ffmpeg: {message}" },
+  "project": { "restoreTitle": "Найдена незавершённая работа", "restoreMessage": "Есть незавершённая работа от {date}. Продолжить?", "restoreYes": "Продолжить", "restoreNo": "Начать заново", "saved": "Сохранено", "saveError": "Ошибка сохранения: {message}" },
+  "tracks": { "selectTitle": "Выбор дорожек субтитров", "selectMessage": "Выберите дорожки для извлечения:", "extract": "Извлечь", "cancel": "Отмена" }
+}

@@ -1,0 +1,23 @@
+{
+  "app": { "title": "Subtitle Style Editor" },
+  "toolbar": { "open": "Open Folder", "save": "Save", "undo": "Undo", "redo": "Redo" },
+  "fileTree": { "title": "Files & Styles", "noFiles": "No files loaded. Open a folder to begin.", "embedded": "embedded" },
+  "editor": {
+    "title": "Style Editor", "noSelection": "Select a style to edit",
+    "multipleSelected": "{count} styles selected",
+    "fontName": "Font Name", "fontSize": "Font Size",
+    "bold": "Bold", "italic": "Italic", "underline": "Underline", "strikeout": "Strikeout",
+    "primaryColour": "Primary Color", "secondaryColour": "Secondary Color",
+    "outlineColour": "Outline Color", "backColour": "Back Color",
+    "outline": "Outline", "shadow": "Shadow",
+    "scaleX": "Scale X", "scaleY": "Scale Y",
+    "spacing": "Spacing", "angle": "Angle",
+    "alignment": "Alignment",
+    "marginL": "Margin L", "marginR": "Margin R", "marginV": "Margin V"
+  },
+  "preview": { "title": "Preview", "noVideo": "No video file associated", "loading": "Generating preview...", "ffmpegMissing": "ffmpeg not available for preview" },
+  "timeline": { "noEvents": "No events for selected style" },
+  "ffmpeg": { "downloading": "ffmpeg not found, downloading...", "progress": "Downloading ffmpeg: {percent}%", "ready": "ffmpeg ready", "error": "ffmpeg error: {message}" },
+  "project": { "restoreTitle": "Unsaved Work Found", "restoreMessage": "There is unsaved work from {date}. Would you like to continue?", "restoreYes": "Continue", "restoreNo": "Start Fresh", "saved": "Saved successfully", "saveError": "Failed to save: {message}" },
+  "tracks": { "selectTitle": "Select Subtitle Tracks", "selectMessage": "Choose which subtitle tracks to extract:", "extract": "Extract", "cancel": "Cancel" }
+}
