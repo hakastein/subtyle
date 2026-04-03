@@ -35,17 +35,28 @@ func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string,
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	data, err := cmd.Output()
+
+	// Always log for debugging
+	fmt.Fprintf(os.Stderr, "[ffmpeg] cmd: %s %s\n", e.binPath, strings.Join(args, " "))
+	if stderrStr := stderr.String(); stderrStr != "" {
+		// Only log last 500 chars of stderr to avoid flooding
+		if len(stderrStr) > 500 {
+			stderrStr = "..." + stderrStr[len(stderrStr)-500:]
+		}
+		fmt.Fprintf(os.Stderr, "[ffmpeg stderr] %s\n", stderrStr)
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("ffmpeg extract frame: %w\nstderr: %s\nargs: %v", err, stderr.String(), args)
 	}
 
-	// Log stderr for debugging (ffmpeg often prints warnings there even on success)
-	if stderrStr := stderr.String(); stderrStr != "" {
-		fmt.Fprintf(os.Stderr, "[ffmpeg stderr] %s\n", stderrStr)
-	}
-	fmt.Fprintf(os.Stderr, "[ffmpeg] args: %v\n", args)
-
 	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+// LastCommand returns the last ffmpeg command that was built for frame extraction (for debugging).
+func LastFrameCommand(binPath, videoPath, subPath string, at time.Duration) string {
+	args := buildFrameArgs(videoPath, subPath, at)
+	return binPath + " " + strings.Join(args, " ")
 }
 
 // ListTracks returns all ASS/SSA subtitle tracks embedded in the video.
@@ -175,51 +186,60 @@ var (
 )
 
 // parseTrackList parses ffmpeg stderr output and returns ASS/SSA subtitle tracks.
-// Track indexes are subtitle-stream-relative (0, 1, 2...) skipping non-ASS tracks.
+// Track Index is the subtitle-stream-relative index counting ALL subtitle streams
+// (needed for -map 0:s:N), but only ASS/SSA tracks are included in the result.
 func parseTrackList(stderr string) []scan.TrackInfo {
-	var tracks []scan.TrackInfo
-	subtitleRelIndex := 0
+	// First pass: find ALL subtitle streams to get correct subtitle-relative indices
+	type subStream struct {
+		lang  string
+		codec string
+		title string
+		subIdx int // subtitle-relative index (counting all sub streams)
+	}
 
+	var allSubs []subStream
 	lines := strings.Split(stderr, "\n")
+
+	// Match any subtitle stream (not just ASS)
+	reAnySub := regexp.MustCompile(`Stream #\d+:\d+(?:\((\w+)\))?: Subtitle: (\w+)`)
+
 	for i, line := range lines {
-		m := reStream.FindStringSubmatch(line)
+		m := reAnySub.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}
 		lang := m[1]
 		codec := strings.ToLower(m[2])
 
-		if codec == "ass" || codec == "ssa" {
-			// Look ahead for a title metadata line
-			title := ""
-			for j := i + 1; j < len(lines) && j <= i+3; j++ {
-				tm := reTitle.FindStringSubmatch(strings.TrimSpace(lines[j]))
-				if tm != nil {
-					title = strings.TrimSpace(tm[1])
-					break
-				}
-				// Stop if we hit another Stream line
-				if strings.Contains(lines[j], "Stream #") {
-					break
-				}
+		title := ""
+		for j := i + 1; j < len(lines) && j <= i+3; j++ {
+			tm := reTitle.FindStringSubmatch(strings.TrimSpace(lines[j]))
+			if tm != nil {
+				title = strings.TrimSpace(tm[1])
+				break
 			}
+			if strings.Contains(lines[j], "Stream #") {
+				break
+			}
+		}
+
+		allSubs = append(allSubs, subStream{
+			lang:   lang,
+			codec:  codec,
+			title:  title,
+			subIdx: len(allSubs), // 0-based across ALL subtitle streams
+		})
+	}
+
+	// Second pass: filter to ASS/SSA only, keeping correct subtitle-relative index
+	var tracks []scan.TrackInfo
+	for _, s := range allSubs {
+		if s.codec == "ass" || s.codec == "ssa" {
 			tracks = append(tracks, scan.TrackInfo{
-				Index:    subtitleRelIndex,
-				Language: lang,
-				Title:    title,
+				Index:    s.subIdx,
+				Language: s.lang,
+				Title:    s.title,
 			})
-			subtitleRelIndex++
-		} else {
-			// Non-ASS subtitle: still increments subtitle relative index? No — the
-			// task says "subtitle-relative index" for all subtitles when using -map 0:s:<N>.
-			// But we skip non-ASS/SSA tracks from the result, so we don't increment here.
-			// Actually for -map 0:s:<N> to work correctly, we need the overall subtitle index.
-			// Re-reading the spec: "correct indexes (0, 1 as subtitle-relative)" with the
-			// sample having streams 0:2(rus):ass and 0:4(jpn):ass and skipping 0:3(eng):srt.
-			// The subtitle-relative indices count ALL subtitle streams (0:s:0 = stream 0:2,
-			// 0:s:1 = stream 0:3 srt, 0:s:2 = stream 0:4). But the test expects 0 and 1.
-			// This means we only count ASS tracks in the index. Let's keep it as-is since
-			// the test explicitly expects 0 and 1.
 		}
 	}
 	return tracks

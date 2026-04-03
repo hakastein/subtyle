@@ -232,6 +232,13 @@ func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []par
 	modified.Styles = styles
 
 	at := time.Duration(atMs) * time.Millisecond
+
+	// Log the command that will be built for debugging
+	if a.extractor != nil {
+		// Write temp to see what path would be used
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("preview: file.Path=%q file.Source=%q styles=%d events=%d", modified.Path, modified.Source, len(modified.Styles), len(modified.Events)))
+	}
+
 	result, err := a.previewGen.GenerateFrame(a.ctx, videoPath, &modified, at)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("GeneratePreviewFrame error: %v", err))

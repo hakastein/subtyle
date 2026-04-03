@@ -137,9 +137,9 @@ func TestParseTrackList(t *testing.T) {
 		t.Errorf("expected track[0].Title = 'Russian [Anku]', got %s", tracks[0].Title)
 	}
 
-	// Second track: index 1, language jpn, title "Japanese"
-	if tracks[1].Index != 1 {
-		t.Errorf("expected track[1].Index = 1, got %d", tracks[1].Index)
+	// Second track: index 2 (subtitle-relative, SRT at index 1 is skipped from result but counted)
+	if tracks[1].Index != 2 {
+		t.Errorf("expected track[1].Index = 2, got %d", tracks[1].Index)
 	}
 	if tracks[1].Language != "jpn" {
 		t.Errorf("expected track[1].Language = 'jpn', got %s", tracks[1].Language)
