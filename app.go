@@ -190,25 +190,25 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int) (*parser.SubtitleFi
 		return nil, fmt.Errorf("ffmpeg not available")
 	}
 
-	tmpFile, err := os.CreateTemp("", "subtitles_track_*.ass")
-	if err != nil {
-		return nil, fmt.Errorf("creating temp file: %w", err)
+	// Store extracted track in app data dir so it persists for preview rendering
+	extractDir := filepath.Join(a.dataDir, "extracted")
+	if err := os.MkdirAll(extractDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating extract dir: %w", err)
 	}
-	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
 
-	if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, tmpPath); err != nil {
+	stableID := fmt.Sprintf("%s:track:%d", filepath.Base(videoPath), trackIndex)
+	outPath := filepath.Join(extractDir, fmt.Sprintf("%s_track%d.ass", filepath.Base(videoPath), trackIndex))
+
+	if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, outPath); err != nil {
 		return nil, err
 	}
 
-	sf, err := parser.ParseFile(tmpPath)
+	sf, err := parser.ParseFile(outPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use a stable ID based on video path and track index.
-	sf.ID = fmt.Sprintf("%s:track:%d", filepath.Base(videoPath), trackIndex)
+	sf.ID = stableID
 	sf.Source = "embedded"
 	sf.TrackID = trackIndex
 	a.parsedFiles[sf.ID] = sf

@@ -107,12 +107,14 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   async function extractTrack(videoPath: string, trackIndex: number): Promise<LoadedFile> {
+    debug.info(`extractTrack: video=${videoPath} track=${trackIndex}`)
     const parsed = await parserService.extractTrack(videoPath, trackIndex)
+    debug.info(`  extracted: ${parsed.styles.length} styles, ${parsed.events.length} events, id=${parsed.id}`)
     const loaded: LoadedFile = {
       id: parsed.id,
       path: parsed.path,
       videoPath,
-      source: parsed.source,
+      source: parsed.source as 'external' | 'embedded',
       trackId: parsed.trackId,
       originalStyles: structuredClone(parsed.styles),
       modifiedStyles: structuredClone(parsed.styles),
@@ -121,10 +123,11 @@ export const useProjectStore = defineStore('project', () => {
     loadedFiles.value.set(loaded.id, loaded)
 
     try {
-      const durationNs = await editorService.getVideoDuration(videoPath)
-      previewStore.videoDurationMs = durationToMs(durationNs)
-    } catch {
-      // ignore if video duration unavailable
+      const durationMs = await editorService.getVideoDuration(videoPath)
+      previewStore.videoDurationMs = durationMs
+      debug.info(`  video duration: ${durationMs}ms`)
+    } catch (err) {
+      debug.error(`  video duration failed: ${err}`)
     }
 
     return loaded

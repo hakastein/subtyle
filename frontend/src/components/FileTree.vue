@@ -1,143 +1,144 @@
 <script setup lang="ts">
-import { computed, h } from 'vue'
+import { computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NTree, NEmpty, NText } from 'naive-ui'
 import type { TreeOption } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
-import type { ScannedFile } from '@/services/types'
+import { useDebugStore } from '@/stores/debug'
+import type { ScannedFile, SubtitleStyle } from '@/services/types'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
+const debug = useDebugStore()
 
-// Build tree data from scanned and loaded files
+const expandedKeys = ref<string[]>([])
+
+/** Get basename from a path (handles both / and \) */
+function basename(path: string): string {
+  return path.replace(/^.*[/\\]/, '')
+}
+
+/** Find loaded file by its ID */
+function findLoaded(id: string) {
+  return projectStore.loadedFiles.get(id) ?? null
+}
+
+/** Build a style suffix showing font info */
+function styleSuffix(style: SubtitleStyle) {
+  return h(NText, { depth: 3, style: 'font-size: 11px; margin-left: 6px' }, {
+    default: () => `${style.fontName} ${style.fontSize}`,
+  })
+}
+
+/** Build style leaf nodes for a loaded file */
+function styleNodes(fileId: string, styles: SubtitleStyle[]): TreeOption[] {
+  return styles.map((style) => ({
+    key: `${fileId}::${style.name}`,
+    label: style.name,
+    isLeaf: true,
+    suffix: () => styleSuffix(style),
+  }))
+}
+
 const treeData = computed<TreeOption[]>(() => {
   return projectStore.scannedFiles.map((scanned) => {
-    const loaded = findLoadedByPath(scanned.path)
-    return buildFileNode(scanned, loaded)
+    if (scanned.type === 'embedded') {
+      return buildEmbeddedNode(scanned)
+    }
+    return buildExternalNode(scanned)
   })
 })
 
-function findLoadedByPath(path: string) {
-  for (const [, file] of projectStore.loadedFiles) {
-    if (file.path === path) return file
+function buildExternalNode(scanned: ScannedFile): TreeOption {
+  const fileId = basename(scanned.path)
+  const loaded = findLoaded(fileId)
+
+  return {
+    key: `file:${scanned.path}`,
+    label: basename(scanned.path),
+    isLeaf: false,
+    children: loaded ? styleNodes(loaded.id, loaded.modifiedStyles) : [],
   }
-  return null
 }
 
-function findLoadedByVideoAndTrack(videoPath: string, trackIndex: number) {
-  for (const [, file] of projectStore.loadedFiles) {
-    if (file.videoPath === videoPath && file.trackId === trackIndex) return file
-  }
-  return null
-}
+function buildEmbeddedNode(scanned: ScannedFile): TreeOption {
+  const children: TreeOption[] = scanned.tracks.map((track) => {
+    const trackId = `${basename(scanned.videoPath)}:track:${track.index}`
+    const loaded = findLoaded(trackId)
+    const label = track.title
+      ? `${track.title} (${track.language || '?'})`
+      : `Track ${track.index} (${track.language || '?'})`
 
-function buildFileNode(scanned: ScannedFile, loaded: ReturnType<typeof findLoadedByPath>): TreeOption {
-  const isEmbedded = scanned.type === 'embedded'
-  const fileName = scanned.path.split('/').pop() ?? scanned.path
-
-  if (isEmbedded) {
-    // Embedded: show video file with tracks as children
-    const videoName = scanned.videoPath.split('/').pop() ?? scanned.videoPath
-    const children: TreeOption[] = scanned.tracks.map((track) => {
-      const trackLoaded = findLoadedByVideoAndTrack(scanned.videoPath, track.index)
-      const trackLabel = track.title
-        ? `Track ${track.index}: ${track.title} (${track.language})`
-        : `Track ${track.index} (${track.language})`
-
-      if (trackLoaded) {
-        // Track is loaded, show its styles
-        return {
-          key: `embedded::${scanned.videoPath}::${track.index}`,
-          label: trackLabel,
-          children: trackLoaded.modifiedStyles.map((style) => ({
-            key: `${trackLoaded.id}::${style.name}`,
-            label: style.name,
-            isLeaf: true,
-            suffix: () => h(NText, { depth: 3, style: 'font-size: 11px; margin-left: 6px' }, { default: () => `${style.fontName} ${style.fontSize}` }),
-          })),
-        }
-      } else {
-        // Track not loaded yet
-        return {
-          key: `track::${scanned.videoPath}::${track.index}`,
-          label: trackLabel,
-          isLeaf: true,
-        }
-      }
-    })
-
-    return {
-      key: `video::${scanned.videoPath}`,
-      label: `🎬 ${videoName}`,
-      children,
-    }
-  } else {
-    // External subtitle file
     if (loaded) {
       return {
-        key: `file::${scanned.path}`,
-        label: fileName,
-        children: loaded.modifiedStyles.map((style) => ({
-          key: `${loaded.id}::${style.name}`,
-          label: style.name,
-          isLeaf: true,
-          suffix: () => h(NText, { depth: 3, style: 'font-size: 11px; margin-left: 6px' }, { default: () => `${style.fontName} ${style.fontSize}` }),
-        })),
-      }
-    } else {
-      return {
-        key: `file::${scanned.path}`,
-        label: fileName,
+        key: `track:${scanned.videoPath}:${track.index}`,
+        label,
         isLeaf: false,
-        children: [],
+        children: styleNodes(loaded.id, loaded.modifiedStyles),
+      }
+    }
+
+    return {
+      key: `track:${scanned.videoPath}:${track.index}`,
+      label,
+      isLeaf: false,
+      children: [], // will be populated after extraction
+    }
+  })
+
+  return {
+    key: `video:${scanned.videoPath}`,
+    label: `🎬 ${basename(scanned.videoPath)}`,
+    children,
+  }
+}
+
+async function handleExpand(keys: string[]) {
+  expandedKeys.value = keys
+
+  for (const key of keys) {
+    // External file expand → load & parse
+    if (key.startsWith('file:')) {
+      const path = key.slice('file:'.length)
+      const fileId = basename(path)
+      if (!findLoaded(fileId)) {
+        const scanned = projectStore.scannedFiles.find(f => f.path === path)
+        if (scanned) {
+          debug.info(`FileTree: loading external ${basename(path)}`)
+          await projectStore.loadFile(scanned)
+        }
+      }
+    }
+
+    // Track expand → extract from video
+    if (key.startsWith('track:')) {
+      const rest = key.slice('track:'.length)
+      // Parse from the end: last segment is trackIndex
+      const lastColon = rest.lastIndexOf(':')
+      const videoPath = rest.slice(0, lastColon)
+      const trackIndex = parseInt(rest.slice(lastColon + 1))
+      const trackId = `${basename(videoPath)}:track:${trackIndex}`
+
+      if (!findLoaded(trackId) && !isNaN(trackIndex)) {
+        debug.info(`FileTree: extracting track ${trackIndex} from ${basename(videoPath)}`)
+        try {
+          await projectStore.extractTrack(videoPath, trackIndex)
+        } catch (err) {
+          debug.error(`FileTree: extract failed — ${err}`)
+        }
       }
     }
   }
 }
 
-const selectedKeys = computed({
-  get: () => projectStore.selectedStyleKeys,
-  set: (keys: string[]) => {
-    projectStore.selectedStyleKeys = keys
-  },
-})
-
-async function handleLoad(keys: string[], option: TreeOption | null) {
-  if (!option) return
-  const key = String(option.key ?? '')
-
-  if (key.startsWith('file::')) {
-    const path = key.slice('file::'.length)
-    const scanned = projectStore.scannedFiles.find(f => f.path === path)
-    if (scanned && !findLoadedByPath(path)) {
-      await projectStore.loadFile(scanned)
-    }
-  } else if (key.startsWith('track::')) {
-    // Format: track::videoPath::trackIndex
-    const rest = key.slice('track::'.length)
-    const lastColon = rest.lastIndexOf('::')
-    const videoPath = rest.slice(0, lastColon)
-    const trackIndex = parseInt(rest.slice(lastColon + 2))
-    await projectStore.extractTrack(videoPath, trackIndex)
+function handleSelect(keys: string[]) {
+  // Only propagate style keys (contain :: with a style name)
+  const styleKeys = keys.filter(k =>
+    !k.startsWith('file:') && !k.startsWith('video:') && !k.startsWith('track:')
+  )
+  if (styleKeys.length > 0) {
+    debug.info(`FileTree: selected ${styleKeys.join(', ')}`)
   }
-}
-
-function handleUpdateExpandedKeys(
-  _keys: Array<string & number>,
-  _option: Array<TreeOption | null>,
-  meta: { node: TreeOption; action: 'expand' | 'collapse' } | { node: null; action: 'filter' },
-) {
-  if (meta.action === 'expand' && meta.node) {
-    handleLoad([], meta.node)
-  }
-}
-
-function handleUpdateSelectedKeys(keys: string[]) {
-  // Only propagate leaf style keys (format: fileId::styleName)
-  const styleKeys = keys.filter(k => {
-    return !k.startsWith('file::') && !k.startsWith('video::') &&
-           !k.startsWith('embedded::') && !k.startsWith('track::')
-  })
   projectStore.selectedStyleKeys = styleKeys
 }
 </script>
@@ -153,12 +154,13 @@ function handleUpdateSelectedKeys(keys: string[]) {
     <NTree
       v-else
       :data="treeData"
-      :selected-keys="selectedKeys"
+      :selected-keys="projectStore.selectedStyleKeys"
+      :expanded-keys="expandedKeys"
       multiple
       block-line
       expand-on-click
-      @update:selected-keys="handleUpdateSelectedKeys"
-      @update:expanded-keys="handleUpdateExpandedKeys"
+      @update:selected-keys="handleSelect"
+      @update:expanded-keys="handleExpand"
       style="padding: 4px"
     />
   </div>
