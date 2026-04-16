@@ -11,8 +11,8 @@ declare global {
           ParseFile(path: string): Promise<SubtitleFile>
           ExtractTrack(videoPath: string, trackIndex: number): Promise<SubtitleFile>
           GeneratePreviewFrame(fileId: string, videoPath: string, styles: SubtitleStyle[], atMs: number): Promise<FrameResult>
-          SaveFile(fileId: string, styles: SubtitleStyle[]): Promise<void>
-          SaveAll(fileStyles: Record<string, SubtitleStyle[]>): Promise<void>
+          SaveFile(req: { fileId: string; videoPath: string; styles: SubtitleStyle[] }): Promise<string>
+          SaveAll(requests: Array<{ fileId: string; videoPath: string; styles: SubtitleStyle[] }>): Promise<string[]>
           CheckAutosave(): Promise<ProjectState | null>
           RestoreProject(): Promise<ProjectState>
           Autosave(state: ProjectState): Promise<void>

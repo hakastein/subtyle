@@ -247,38 +247,59 @@ func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []par
 	return result, nil
 }
 
-// SaveFile saves the styles for the given file ID. For embedded-source files,
-// the output is written next to the video as "filename.[modified].ass".
-func (a *App) SaveFile(fileID string, styles []parser.SubtitleStyle) error {
-	sf, ok := a.parsedFiles[fileID]
+// SaveRequest describes a single file save operation with its video context
+// (needed for embedded subtitles to compute the output path next to the video).
+type SaveRequest struct {
+	FileID    string                 `json:"fileId"`
+	VideoPath string                 `json:"videoPath"`
+	Styles    []parser.SubtitleStyle `json:"styles"`
+}
+
+// SaveFile saves the styles for the given file. For embedded-source files,
+// the output is written next to videoPath as "<videoname>.[modified].ass".
+func (a *App) SaveFile(req SaveRequest) (string, error) {
+	sf, ok := a.parsedFiles[req.FileID]
 	if !ok {
-		return fmt.Errorf("file %q not found", fileID)
+		return "", fmt.Errorf("file %q not found", req.FileID)
 	}
 
 	// Apply the provided styles.
 	modified := *sf
-	modified.Styles = styles
+	modified.Styles = req.Styles
 
 	var outPath string
 	if sf.Source == "embedded" {
-		// Save next to the video file.
-		base := strings.TrimSuffix(sf.Path, filepath.Ext(sf.Path))
-		outPath = base + ".[modified].ass"
+		if req.VideoPath == "" {
+			return "", fmt.Errorf("videoPath required for embedded file %q", req.FileID)
+		}
+		// Save next to the video file: <videobase>.[modified].track<N>.ass
+		videoDir := filepath.Dir(req.VideoPath)
+		videoBase := strings.TrimSuffix(filepath.Base(req.VideoPath), filepath.Ext(req.VideoPath))
+		outPath = filepath.Join(videoDir, fmt.Sprintf("%s.[modified].track%d.ass", videoBase, sf.TrackID))
 	} else {
 		outPath = sf.Path
 	}
 
-	return parser.WriteFile(outPath, &modified)
+	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("SaveFile: %s (source=%s) → %s", req.FileID, sf.Source, outPath))
+
+	if err := parser.WriteFile(outPath, &modified); err != nil {
+		return "", err
+	}
+	return outPath, nil
 }
 
-// SaveAll iterates over the provided map of fileID→styles and calls SaveFile for each.
-func (a *App) SaveAll(fileStyles map[string][]parser.SubtitleStyle) error {
-	for fileID, styles := range fileStyles {
-		if err := a.SaveFile(fileID, styles); err != nil {
-			return fmt.Errorf("saving %q: %w", fileID, err)
+// SaveAll iterates over the provided save requests and calls SaveFile for each.
+// Returns a list of paths that were written, one per successful save.
+func (a *App) SaveAll(requests []SaveRequest) ([]string, error) {
+	var paths []string
+	for _, req := range requests {
+		out, err := a.SaveFile(req)
+		if err != nil {
+			return paths, fmt.Errorf("saving %q: %w", req.FileID, err)
 		}
+		paths = append(paths, out)
 	}
-	return nil
+	return paths, nil
 }
 
 // CheckAutosave returns the project state if an autosave exists and is dirty,

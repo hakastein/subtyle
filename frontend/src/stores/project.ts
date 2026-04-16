@@ -201,13 +201,24 @@ export const useProjectStore = defineStore('project', () => {
     scheduleAutosave()
   }
 
-  async function save(): Promise<void> {
-    const fileStyles: Record<string, SubtitleStyle[]> = {}
+  async function save(): Promise<string[]> {
+    const requests: parserService.SaveRequest[] = []
     for (const [id, file] of loadedFiles.value) {
-      fileStyles[id] = file.modifiedStyles
+      requests.push({
+        fileId: id,
+        videoPath: file.videoPath,
+        styles: file.modifiedStyles,
+      })
     }
-    await parserService.saveAll(fileStyles)
+    debug.info(`save: ${requests.length} files`)
+    const paths = await parserService.saveAll(requests)
+    debug.info(`save: wrote ${paths.length} files: ${paths.join(', ')}`)
     dirty.value = false
+    // Update originals to match saved state
+    for (const file of loadedFiles.value.values()) {
+      file.originalStyles = structuredClone(file.modifiedStyles)
+    }
+    return paths
   }
 
   function scheduleAutosave(): void {
