@@ -13,7 +13,7 @@ import {
 } from '@/services/ffmpeg'
 import * as projectService from '@/services/project'
 import Toolbar from '@/components/Toolbar.vue'
-import FileTree from '@/components/FileTree.vue'
+import FilePanel from '@/components/FilePanel.vue'
 import StyleEditor from '@/components/StyleEditor.vue'
 import PreviewArea from '@/components/PreviewArea.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
@@ -140,7 +140,7 @@ onUnmounted(() => {
     <Toolbar />
     <div class="main-body">
       <aside class="panel-left">
-        <FileTree />
+        <FilePanel />
       </aside>
       <main class="panel-center">
         <PreviewArea />
@@ -169,8 +169,8 @@ onUnmounted(() => {
 }
 
 .panel-left {
-  width: 260px;
-  min-width: 180px;
+  width: 520px;
+  min-width: 360px;
   border-right: 1px solid var(--n-border-color, #e0e0e6);
   overflow: hidden;
   display: flex;
