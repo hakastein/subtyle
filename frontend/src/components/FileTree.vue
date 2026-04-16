@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, h, ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NTree, NEmpty, NText } from 'naive-ui'
 import type { TreeOption } from 'naive-ui'
@@ -131,15 +131,93 @@ async function handleExpand(keys: string[]) {
   }
 }
 
-function handleSelect(keys: string[]) {
-  // Only propagate style keys (contain :: with a style name)
+// Track modifier keys for click selection logic
+const modifiers = { ctrl: false, shift: false }
+
+function handleMouseDown(e: MouseEvent) {
+  modifiers.ctrl = e.ctrlKey || e.metaKey
+  modifiers.shift = e.shiftKey
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleMouseDown, true)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleMouseDown, true)
+})
+
+/** Flatten tree to ordered list of visible style keys (for range selection) */
+function flattenStyleKeys(): string[] {
+  const result: string[] = []
+  function walk(nodes: TreeOption[]) {
+    for (const node of nodes) {
+      const key = String(node.key ?? '')
+      if (key && !key.startsWith('file:') && !key.startsWith('video:') && !key.startsWith('track:')) {
+        result.push(key)
+      }
+      if (node.children && expandedKeys.value.includes(String(node.key ?? ''))) {
+        walk(node.children)
+      }
+    }
+  }
+  walk(treeData.value)
+  return result
+}
+
+function handleSelect(
+  keys: string[],
+  _option: Array<TreeOption | null>,
+  meta: { node: TreeOption | null; action: 'select' | 'unselect' },
+) {
+  const clickedKey = String(meta.node?.key ?? '')
+  const isStyleKey = clickedKey &&
+    !clickedKey.startsWith('file:') &&
+    !clickedKey.startsWith('video:') &&
+    !clickedKey.startsWith('track:')
+
+  // If a non-style node was clicked, ignore selection change (keep current)
+  if (!isStyleKey) {
+    return
+  }
+
+  const prev = projectStore.selectedStyleKeys
+
+  // Shift+click: range select from last selected to clicked
+  if (modifiers.shift && prev.length > 0) {
+    const visible = flattenStyleKeys()
+    const lastSelected = prev[prev.length - 1]
+    const startIdx = visible.indexOf(lastSelected)
+    const endIdx = visible.indexOf(clickedKey)
+    if (startIdx >= 0 && endIdx >= 0) {
+      const [lo, hi] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
+      projectStore.selectedStyleKeys = visible.slice(lo, hi + 1)
+      debug.info(`FileTree: shift-select range ${lo}..${hi}`)
+      return
+    }
+  }
+
+  // Ctrl+click: toggle add/remove from selection
+  if (modifiers.ctrl) {
+    if (meta.action === 'unselect') {
+      projectStore.selectedStyleKeys = prev.filter(k => k !== clickedKey)
+    } else {
+      projectStore.selectedStyleKeys = prev.includes(clickedKey)
+        ? prev.filter(k => k !== clickedKey)
+        : [...prev, clickedKey]
+    }
+    debug.info(`FileTree: ctrl-toggle ${clickedKey}`)
+    return
+  }
+
+  // Plain click: single select (replace)
   const styleKeys = keys.filter(k =>
     !k.startsWith('file:') && !k.startsWith('video:') && !k.startsWith('track:')
   )
-  if (styleKeys.length > 0) {
-    debug.info(`FileTree: selected ${styleKeys.join(', ')}`)
-  }
-  projectStore.selectedStyleKeys = styleKeys
+  // If NTree tried to add multiple or toggle, force single selection to clicked
+  projectStore.selectedStyleKeys = [clickedKey]
+  debug.info(`FileTree: single-select ${clickedKey}`)
+  void styleKeys
 }
 </script>
 
