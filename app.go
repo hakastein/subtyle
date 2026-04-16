@@ -184,8 +184,9 @@ func (a *App) ParseFile(path string) (*parser.SubtitleFile, error) {
 }
 
 // ExtractTrack extracts an embedded subtitle track from a video file,
-// parses it, caches it, and returns the SubtitleFile.
-func (a *App) ExtractTrack(videoPath string, trackIndex int) (*parser.SubtitleFile, error) {
+// parses it, caches it, and returns the SubtitleFile. trackTitle is the
+// human-readable name from container metadata, used for saving.
+func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) (*parser.SubtitleFile, error) {
 	if a.extractor == nil {
 		return nil, fmt.Errorf("ffmpeg not available")
 	}
@@ -211,8 +212,20 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int) (*parser.SubtitleFi
 	sf.ID = stableID
 	sf.Source = "embedded"
 	sf.TrackID = trackIndex
+	sf.TrackTitle = trackTitle
 	a.parsedFiles[sf.ID] = sf
 	return sf, nil
+}
+
+// sanitizeFilename replaces characters that are invalid in Windows filenames
+// with an underscore. Also trims trailing dots/spaces.
+func sanitizeFilename(s string) string {
+	invalid := []string{`<`, `>`, `:`, `"`, `/`, `\`, `|`, `?`, `*`}
+	for _, c := range invalid {
+		s = strings.ReplaceAll(s, c, "_")
+	}
+	s = strings.TrimRight(s, ". ")
+	return s
 }
 
 // GeneratePreviewFrame renders a single preview frame for the given file
@@ -272,10 +285,18 @@ func (a *App) SaveFile(req SaveRequest) (string, error) {
 		if req.VideoPath == "" {
 			return "", fmt.Errorf("videoPath required for embedded file %q", req.FileID)
 		}
-		// Save next to the video file: <videobase>.[modified].track<N>.ass
+		// Save next to the video file.
+		// Use track title if available: <videobase>.<title>.ass
+		// Fall back to track index if title is empty: <videobase>.track<N>.ass
 		videoDir := filepath.Dir(req.VideoPath)
 		videoBase := strings.TrimSuffix(filepath.Base(req.VideoPath), filepath.Ext(req.VideoPath))
-		outPath = filepath.Join(videoDir, fmt.Sprintf("%s.[modified].track%d.ass", videoBase, sf.TrackID))
+		var suffix string
+		if sf.TrackTitle != "" {
+			suffix = sanitizeFilename(sf.TrackTitle)
+		} else {
+			suffix = fmt.Sprintf("track%d", sf.TrackID)
+		}
+		outPath = filepath.Join(videoDir, fmt.Sprintf("%s.%s.ass", videoBase, suffix))
 	} else {
 		outPath = sf.Path
 	}

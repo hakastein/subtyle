@@ -41,10 +41,11 @@ type SubtitleEvent struct {
 }
 
 type SubtitleFile struct {
-	ID      string          `json:"id"`
-	Path    string          `json:"path"`
-	Source  string          `json:"source"` // "external" or "embedded"
-	TrackID int             `json:"trackId"`
-	Styles  []SubtitleStyle `json:"styles"`
-	Events  []SubtitleEvent `json:"events"`
+	ID         string          `json:"id"`
+	Path       string          `json:"path"`
+	Source     string          `json:"source"` // "external" or "embedded"
+	TrackID    int             `json:"trackId"`
+	TrackTitle string          `json:"trackTitle"` // display name for embedded tracks
+	Styles     []SubtitleStyle `json:"styles"`
+	Events     []SubtitleEvent `json:"events"`
 }

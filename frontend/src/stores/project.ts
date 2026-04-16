@@ -106,9 +106,9 @@ export const useProjectStore = defineStore('project', () => {
     return loaded
   }
 
-  async function extractTrack(videoPath: string, trackIndex: number): Promise<LoadedFile> {
-    debug.info(`extractTrack: video=${videoPath} track=${trackIndex}`)
-    const parsed = await parserService.extractTrack(videoPath, trackIndex)
+  async function extractTrack(videoPath: string, trackIndex: number, trackTitle: string = ''): Promise<LoadedFile> {
+    debug.info(`extractTrack: video=${videoPath} track=${trackIndex} title=${trackTitle}`)
+    const parsed = await parserService.extractTrack(videoPath, trackIndex, trackTitle)
     debug.info(`  extracted: ${parsed.styles.length} styles, ${parsed.events.length} events, id=${parsed.id}`)
     const loaded: LoadedFile = {
       id: parsed.id,

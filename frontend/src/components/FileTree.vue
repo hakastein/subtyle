@@ -120,9 +120,15 @@ async function handleExpand(keys: string[]) {
       const trackId = `${basename(videoPath)}:track:${trackIndex}`
 
       if (!findLoaded(trackId) && !isNaN(trackIndex)) {
-        debug.info(`FileTree: extracting track ${trackIndex} from ${basename(videoPath)}`)
+        // Look up the track title from scanned files
+        const scanned = projectStore.scannedFiles.find(
+          f => f.videoPath === videoPath && f.type === 'embedded',
+        )
+        const track = scanned?.tracks.find(t => t.index === trackIndex)
+        const title = track?.title ?? ''
+        debug.info(`FileTree: extracting track ${trackIndex} (${title || 'no title'}) from ${basename(videoPath)}`)
         try {
-          await projectStore.extractTrack(videoPath, trackIndex)
+          await projectStore.extractTrack(videoPath, trackIndex, title)
         } catch (err) {
           debug.error(`FileTree: extract failed — ${err}`)
         }
