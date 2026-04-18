@@ -1,147 +1,154 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NCheckbox, NSelect, NEmpty, NSpin, NText, NScrollbar } from 'naive-ui'
-import type { SelectOption } from 'naive-ui'
+import { NCheckbox, NEmpty, NScrollbar, NProgress } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
 import { useDebugStore } from '@/stores/debug'
+import { useProgressStore } from '@/stores/progress'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
 const debug = useDebugStore()
+const progressStore = useProgressStore()
 
-// Left sub-column: videos with checkboxes
-const videoEntries = computed(() => projectStore.videoEntries)
-
-function isChecked(videoPath: string): boolean {
-  return projectStore.fileChecks.get(videoPath) ?? true
+// Translations: visible list (not dropdown). Ctrl/Cmd+click for multi-select.
+function handleTranslationClick(key: string, event: MouseEvent) {
+  const additive = event.ctrlKey || event.metaKey
+  projectStore.selectTranslation(key, additive)
+  debug.info(`FilePanel: translation ${key} ${additive ? '+add' : 'replace'}`)
 }
 
-function toggleCheck(videoPath: string, value: boolean): void {
-  const next = new Map(projectStore.fileChecks)
-  next.set(videoPath, value)
-  projectStore.fileChecks = next
+function isTranslationSelected(key: string): boolean {
+  return projectStore.selectedTranslationKeys.includes(key)
 }
 
-function checkAll(value: boolean): void {
-  const next = new Map<string, boolean>()
-  for (const entry of videoEntries.value) {
-    next.set(entry.videoPath, value)
+// Episodes: checkbox list.
+function episodeIsChecked(videoPath: string): boolean {
+  return projectStore.episodeChecks.get(videoPath) ?? false
+}
+
+function toggleEpisode(videoPath: string, value: boolean) {
+  projectStore.toggleEpisode(videoPath, value)
+}
+
+const checkedCount = computed(() => {
+  let n = 0
+  for (const [, v] of projectStore.episodeChecks) {
+    if (v) n++
   }
-  projectStore.fileChecks = next
-}
-
-const allChecked = computed(() =>
-  videoEntries.value.every(e => isChecked(e.videoPath)),
-)
-const noneChecked = computed(() =>
-  videoEntries.value.every(e => !isChecked(e.videoPath)),
-)
-
-// Right sub-column: source selector + grouped styles
-const sourceOptions = computed<SelectOption[]>(() =>
-  projectStore.sourceTypes.map(s => ({
-    label: s.label,
-    value: s.key,
-  })),
-)
-
-const selectedSource = computed({
-  get: () => projectStore.selectedSourceKey,
-  set: (key: string | null) => {
-    projectStore.selectedSourceKey = key
-    debug.info(`FilePanel: selected source ${key}`)
-  },
+  return n
 })
 
-const isStyleSelected = (styleName: string) =>
-  projectStore.groupedStyles
-    .find(g => g.styleName === styleName)
-    ?.instances.every(i =>
-      projectStore.selectedStyleKeys.includes(`${i.fileId}::${i.styleName}`),
-    ) ?? false
+// Styles: grouped list with header progress bar.
+function isStyleSelected(styleName: string): boolean {
+  const group = projectStore.groupedStyles.find(g => g.styleName === styleName)
+  if (!group) return false
+  return group.instances.every(i =>
+    projectStore.selectedStyleKeys.includes(`${i.fileId}::${i.styleName}`),
+  )
+}
 
 function handleStyleClick(styleName: string, event: MouseEvent) {
   const additive = event.ctrlKey || event.metaKey
   projectStore.selectGroupedStyle(styleName, additive)
-  debug.info(`FilePanel: style ${styleName} ${additive ? '(additive)' : '(replace)'}`)
 }
 
-// Compact style info for the list row
 function styleInfo(style: { fontName: string; fontSize: number; bold: boolean; italic: boolean }) {
   const parts = [style.fontName, String(style.fontSize)]
   if (style.bold) parts.push('B')
   if (style.italic) parts.push('I')
   return parts.join(' · ')
 }
+
+const loadPercentage = computed(() => {
+  const p = progressStore.load
+  return p.total > 0 ? Math.round((p.current / p.total) * 100) : 0
+})
 </script>
 
 <template>
   <div class="file-panel">
-    <!-- Left sub-column: file checkboxes -->
-    <div class="files-col">
-      <div class="col-header">
-        <NCheckbox
-          :checked="allChecked"
-          :indeterminate="!allChecked && !noneChecked"
-          @update:checked="checkAll"
-        >
-          <span class="header-label">{{ t('fileTree.title') }}</span>
-        </NCheckbox>
+    <!-- Left sub-column: translations (top) + episodes (bottom) -->
+    <div class="left-col">
+      <!-- Translations -->
+      <div class="translations-section">
+        <div class="section-header">Translations</div>
+        <NEmpty
+          v-if="projectStore.translations.length === 0"
+          description="No translations"
+          size="small"
+          style="padding: 12px"
+        />
+        <NScrollbar v-else style="flex: 1">
+          <div
+            v-for="trans in projectStore.translations"
+            :key="trans.key"
+            class="trans-row"
+            :class="{ active: isTranslationSelected(trans.key) }"
+            @click="handleTranslationClick(trans.key, $event)"
+          >
+            <span class="trans-label" :title="trans.label">{{ trans.label }}</span>
+            <span class="trans-coverage">{{ trans.coverageCount }}/{{ trans.totalEpisodes }}</span>
+          </div>
+        </NScrollbar>
       </div>
 
-      <NEmpty
-        v-if="videoEntries.length === 0"
-        :description="t('fileTree.noFiles')"
-        size="small"
-        style="padding: 20px 12px"
-      />
-
-      <NScrollbar v-else style="max-height: 100%; flex: 1">
-        <div class="file-list">
+      <!-- Episodes -->
+      <div class="episodes-section">
+        <div class="section-header">
+          <span>Episodes</span>
+          <span class="header-muted">{{ checkedCount }}/{{ projectStore.videoEntries.length }}</span>
+        </div>
+        <NEmpty
+          v-if="projectStore.videoEntries.length === 0"
+          :description="t('fileTree.noFiles')"
+          size="small"
+          style="padding: 12px"
+        />
+        <NScrollbar v-else style="flex: 1">
           <label
-            v-for="entry in videoEntries"
+            v-for="entry in projectStore.videoEntries"
             :key="entry.videoPath"
-            class="file-row"
+            class="ep-row"
+            :class="{ disabled: !episodeIsChecked(entry.videoPath) }"
           >
             <NCheckbox
-              :checked="isChecked(entry.videoPath)"
-              @update:checked="(v: boolean) => toggleCheck(entry.videoPath, v)"
+              :checked="episodeIsChecked(entry.videoPath)"
+              @update:checked="(v: boolean) => toggleEpisode(entry.videoPath, v)"
             />
-            <span class="file-name" :title="entry.videoPath">
-              <span v-if="entry.episode !== null" class="ep-badge">
-                {{ String(entry.episode).padStart(2, '0') }}
-              </span>
-              {{ entry.videoName }}
+            <span v-if="entry.episode !== null" class="ep-badge">
+              {{ String(entry.episode).padStart(2, '0') }}
             </span>
+            <span class="ep-name" :title="entry.videoPath">{{ entry.videoName }}</span>
           </label>
-        </div>
-      </NScrollbar>
+        </NScrollbar>
+      </div>
     </div>
 
-    <!-- Right sub-column: source selector + styles -->
+    <!-- Right sub-column: styles -->
     <div class="styles-col">
-      <div class="col-header">
-        <NSelect
-          v-model:value="selectedSource"
-          :options="sourceOptions"
-          placeholder="Select subtitle source"
-          size="small"
-          clearable
-          :disabled="sourceOptions.length === 0"
+      <div class="section-header styles-header">
+        <span>Styles</span>
+        <NProgress
+          v-if="progressStore.load.active"
+          type="line"
+          :percentage="loadPercentage"
+          :show-indicator="false"
+          :height="4"
+          style="flex: 1"
         />
+        <span v-else class="header-muted">
+          {{ projectStore.groupedStyles.length }}
+        </span>
       </div>
 
-      <div v-if="projectStore.sourceLoadingState === 'loading'" class="loading-row">
-        <NSpin size="small" />
-        <NText depth="3" style="font-size: 12px; margin-left: 8px">
-          Loading styles...
-        </NText>
+      <div v-if="progressStore.load.active" class="load-message">
+        {{ progressStore.load.message }}
       </div>
 
       <NEmpty
-        v-else-if="!selectedSource"
-        description="Choose a subtitle source above"
+        v-else-if="projectStore.selectedTranslationKeys.length === 0"
+        description="Pick a translation to see styles"
         size="small"
         style="padding: 20px 12px"
       />
@@ -153,25 +160,23 @@ function styleInfo(style: { fontName: string; fontSize: number; bold: boolean; i
         style="padding: 20px 12px"
       />
 
-      <NScrollbar v-else style="max-height: 100%; flex: 1">
-        <div class="style-list">
-          <div
-            v-for="group in projectStore.groupedStyles"
-            :key="group.styleName"
-            class="style-row"
-            :class="{ active: isStyleSelected(group.styleName) }"
-            @click="handleStyleClick(group.styleName, $event)"
-          >
-            <div class="style-main">
-              <span class="style-name">{{ group.styleName }}</span>
-              <span v-if="group.episodesLabel" class="episodes-label">
-                ep {{ group.episodesLabel }}
-              </span>
-            </div>
-            <div class="style-info">
-              {{ styleInfo(group.representative) }}
-              <span class="instance-count">({{ group.instances.length }})</span>
-            </div>
+      <NScrollbar v-else style="flex: 1">
+        <div
+          v-for="group in projectStore.groupedStyles"
+          :key="group.styleName"
+          class="style-row"
+          :class="{ active: isStyleSelected(group.styleName) }"
+          @click="handleStyleClick(group.styleName, $event)"
+        >
+          <div class="style-main">
+            <span class="style-name">{{ group.styleName }}</span>
+            <span v-if="group.episodesLabel" class="episodes-label">
+              ep {{ group.episodesLabel }}
+            </span>
+          </div>
+          <div class="style-info">
+            {{ styleInfo(group.representative) }}
+            <span class="instance-count">({{ group.instances.length }})</span>
           </div>
         </div>
       </NScrollbar>
@@ -186,45 +191,101 @@ function styleInfo(style: { fontName: string; fontSize: number; bold: boolean; i
   overflow: hidden;
 }
 
-.files-col,
-.styles-col {
+.left-col {
+  width: 260px;
+  border-right: 1px solid var(--n-border-color, #e0e0e6);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex-shrink: 0;
+}
+
+.translations-section {
+  flex: 0 0 40%;
+  border-bottom: 1px solid var(--n-border-color, #e0e0e6);
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
 
-.files-col {
-  width: 45%;
-  min-width: 200px;
-  border-right: 1px solid var(--n-border-color, #e0e0e6);
+.episodes-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .styles-col {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
-.col-header {
+.section-header {
   padding: 6px 10px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
   border-bottom: 1px solid var(--n-border-color, #e0e0e6);
+  background: var(--n-color, #fff);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.header-label {
-  font-weight: 600;
+.styles-header {
+  gap: 10px;
 }
 
-.file-list {
-  padding: 4px 0;
+.header-muted {
+  font-weight: 400;
+  color: var(--n-text-color-3, #888);
 }
 
-.file-row {
+.load-message {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--n-text-color-3, #888);
+}
+
+/* Translations */
+.trans-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  border-left: 3px solid transparent;
+}
+.trans-row:hover {
+  background: var(--n-color-hover, rgba(0, 0, 0, 0.04));
+}
+.trans-row.active {
+  background: var(--n-color-target-hover, rgba(32, 128, 240, 0.12));
+  border-left-color: var(--n-color-target, #2080f0);
+}
+.trans-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.trans-coverage {
+  color: var(--n-text-color-3, #888);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Episodes */
+.ep-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -233,18 +294,18 @@ function styleInfo(style: { fontName: string; fontSize: number; bold: boolean; i
   font-size: 12px;
   line-height: 1.3;
 }
-
-.file-row:hover {
+.ep-row:hover {
   background: var(--n-color-hover, rgba(0, 0, 0, 0.04));
 }
-
-.file-name {
+.ep-row.disabled {
+  opacity: 0.5;
+}
+.ep-name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
 }
-
 .ep-badge {
   display: inline-block;
   background: var(--n-color-target, #2080f0);
@@ -253,19 +314,9 @@ function styleInfo(style: { fontName: string; fontSize: number; bold: boolean; i
   font-weight: 600;
   padding: 1px 4px;
   border-radius: 3px;
-  margin-right: 4px;
 }
 
-.loading-row {
-  display: flex;
-  align-items: center;
-  padding: 12px;
-}
-
-.style-list {
-  padding: 4px 0;
-}
-
+/* Styles */
 .style-row {
   display: flex;
   flex-direction: column;
@@ -273,23 +324,19 @@ function styleInfo(style: { fontName: string; fontSize: number; bold: boolean; i
   cursor: pointer;
   border-left: 2px solid transparent;
 }
-
 .style-row:hover {
   background: var(--n-color-hover, rgba(0, 0, 0, 0.04));
 }
-
 .style-row.active {
   background: var(--n-color-target-hover, rgba(32, 128, 240, 0.12));
   border-left-color: var(--n-color-target, #2080f0);
 }
-
 .style-main {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
 }
-
 .style-name {
   font-weight: 600;
   font-size: 13px;
@@ -297,19 +344,16 @@ function styleInfo(style: { fontName: string; fontSize: number; bold: boolean; i
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .episodes-label {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--n-text-color-3, #888);
   white-space: nowrap;
 }
-
 .style-info {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--n-text-color-3, #888);
   margin-top: 2px;
 }
-
 .instance-count {
   margin-left: 6px;
   opacity: 0.7;
