@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -45,6 +46,16 @@ type App struct {
 	projectMgr  *project.Manager
 	dataDir     string
 	parsedFiles map[string]*parser.SubtitleFile
+
+	ffmpegStateMu sync.Mutex
+	ffmpegState   FfmpegState
+}
+
+// setFfmpegState updates the bootstrap status and emits a snapshot event.
+func (a *App) setFfmpegState(status string, progress float64, errMsg string) {
+	a.ffmpegStateMu.Lock()
+	a.ffmpegState = FfmpegState{Status: status, Progress: progress, Error: errMsg}
+	a.ffmpegStateMu.Unlock()
 }
 
 // newApp creates a new App with all managers initialized.
@@ -79,6 +90,8 @@ func (a *App) GetCrashLogPath() string {
 // initFFmpeg attempts to find or download the ffmpeg binary and emits
 // progress events to the frontend.
 func (a *App) initFFmpeg() {
+	a.setFfmpegState("not_found", 0, "")
+
 	if path := a.ffmpegMgr.Find(); path != "" {
 		a.extractor = ffmpeg.NewExtractor(path)
 		a.previewGen = preview.NewGenerator(a.extractor, preview.NewCache(filepath.Join(a.dataDir, "preview-cache"), 100*1024*1024))
@@ -87,16 +100,24 @@ func (a *App) initFFmpeg() {
 		if !diag.HasSubtitlesFilter {
 			runtime.EventsEmit(a.ctx, "debug:log", "WARNING: ffmpeg does not have subtitles filter — subtitle overlay will not work!")
 		}
+		a.setFfmpegState("ready", 1, "")
 		runtime.EventsEmit(a.ctx, "ffmpeg:ready")
 		return
 	}
 
+	a.setFfmpegState("downloading", 0, "")
 	runtime.EventsEmit(a.ctx, "ffmpeg:downloading")
 
 	err := a.ffmpegMgr.Download(context.Background(), func(received, total int64) {
+		pct := 0.0
+		if total > 0 {
+			pct = float64(received) / float64(total)
+		}
+		a.setFfmpegState("downloading", pct, "")
 		runtime.EventsEmit(a.ctx, "ffmpeg:progress", received, total)
 	})
 	if err != nil {
+		a.setFfmpegState("error", 0, err.Error())
 		runtime.EventsEmit(a.ctx, "ffmpeg:error", err.Error())
 		return
 	}
@@ -109,12 +130,29 @@ func (a *App) initFFmpeg() {
 	if !diag.HasSubtitlesFilter {
 		runtime.EventsEmit(a.ctx, "debug:log", "WARNING: downloaded ffmpeg does not have subtitles filter!")
 	}
+	a.setFfmpegState("ready", 1, "")
 	runtime.EventsEmit(a.ctx, "ffmpeg:ready")
 }
 
 // IsFfmpegReady returns true if ffmpeg has been found or downloaded.
 func (a *App) IsFfmpegReady() bool {
 	return a.extractor != nil
+}
+
+// FfmpegState describes the ffmpeg bootstrap status for the frontend.
+type FfmpegState struct {
+	Status   string  `json:"status"` // "ready" | "downloading" | "not_found" | "error"
+	Progress float64 `json:"progress"` // 0..1 during download
+	Error    string  `json:"error"`
+}
+
+// GetFfmpegState returns a snapshot of the ffmpeg bootstrap status so the
+// frontend can recover the correct state even if it missed the emitted events
+// (e.g. because the UI mounted after they fired).
+func (a *App) GetFfmpegState() FfmpegState {
+	a.ffmpegStateMu.Lock()
+	defer a.ffmpegStateMu.Unlock()
+	return a.ffmpegState
 }
 
 // GetFfmpegDiag returns diagnostic info about the ffmpeg binary.

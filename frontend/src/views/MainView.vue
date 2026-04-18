@@ -12,7 +12,6 @@ import {
   onFFmpegProgress,
   onFFmpegError,
 } from '@/services/ffmpeg'
-import * as projectService from '@/services/project'
 import Toolbar from '@/components/Toolbar.vue'
 import FilePanel from '@/components/FilePanel.vue'
 import StyleEditor from '@/components/StyleEditor.vue'
@@ -60,36 +59,43 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-async function pollFfmpegReady() {
-  // Poll backend directly in case event was emitted before we mounted
+async function syncFfmpegState() {
+  // One-shot query to recover state in case events fired before we mounted.
+  // After this we rely on events only — no polling spam.
   try {
-    const ready = await projectService.isFfmpegReady()
-    debug.info(`ffmpeg poll: ready=${ready}`)
-    if (ready) {
+    const state = await window.go.main.App.GetFfmpegState()
+    debug.info(`ffmpeg state: ${state.status} (${Math.round((state.progress || 0) * 100)}%)`)
+    if (state.status === 'ready') {
       previewStore.ffmpegReady = true
       previewStore.ffmpegDownloading = false
-      // Run diagnostics
-      try {
-        const diag = await window.go.main.App.GetFfmpegDiag()
-        debug.info(`ffmpeg path: ${diag.path}`)
-        debug.info(`ffmpeg version: ${diag.version}`)
-        debug.info(`ffmpeg subtitles filter: ${diag.hasSubtitlesFilter}`)
-        debug.info(`ffmpeg libass: ${diag.hasLibass}`)
-        if (!diag.hasSubtitlesFilter) {
-          debug.error('ffmpeg does NOT support subtitles filter — subtitle overlay will not work!')
-          message.warning('ffmpeg does not support subtitle rendering (missing libass)', { duration: 10000 })
-        }
-      } catch (err) {
-        debug.error(`ffmpeg diag failed: ${err}`)
-      }
-      return
+      previewStore.ffmpegProgress = 1
+      void logFfmpegDiag()
+    } else if (state.status === 'downloading') {
+      previewStore.ffmpegDownloading = true
+      previewStore.ffmpegReady = false
+      previewStore.ffmpegProgress = state.progress || 0
+    } else if (state.status === 'error') {
+      debug.error(`ffmpeg error: ${state.error}`)
     }
   } catch (err) {
-    debug.error(`ffmpeg poll failed: ${err}`)
+    debug.error(`ffmpeg state query failed: ${err}`)
   }
+}
 
-  // Not ready yet — keep polling every 500ms
-  setTimeout(pollFfmpegReady, 500)
+async function logFfmpegDiag() {
+  try {
+    const diag = await window.go.main.App.GetFfmpegDiag()
+    debug.info(`ffmpeg path: ${diag.path}`)
+    debug.info(`ffmpeg version: ${diag.version}`)
+    debug.info(`ffmpeg subtitles filter: ${diag.hasSubtitlesFilter}`)
+    debug.info(`ffmpeg libass: ${diag.hasLibass}`)
+    if (!diag.hasSubtitlesFilter) {
+      debug.error('ffmpeg does NOT support subtitles filter — subtitle overlay will not work!')
+      message.warning('ffmpeg does not support subtitle rendering (missing libass)', { duration: 10000 })
+    }
+  } catch (err) {
+    debug.error(`ffmpeg diag failed: ${err}`)
+  }
 }
 
 onMounted(() => {
@@ -102,12 +108,15 @@ onMounted(() => {
     debug.info('ffmpeg:ready event received')
     previewStore.ffmpegReady = true
     previewStore.ffmpegDownloading = false
+    previewStore.ffmpegProgress = 1
     message.success(t('ffmpeg.ready'))
+    void logFfmpegDiag()
   })
 
   onFFmpegDownloading(() => {
     debug.info('ffmpeg:downloading event received')
     previewStore.ffmpegDownloading = true
+    previewStore.ffmpegReady = false
     previewStore.ffmpegProgress = 0
     message.info(t('ffmpeg.downloading'))
   })
@@ -115,6 +124,7 @@ onMounted(() => {
   onFFmpegProgress((received: number, total: number) => {
     if (total > 0) {
       previewStore.ffmpegProgress = received / total
+      previewStore.ffmpegDownloading = true
     }
   })
 
@@ -139,8 +149,8 @@ onMounted(() => {
     }
   })
 
-  // Poll ffmpeg status to catch race condition where event fired before mount
-  pollFfmpegReady()
+  // One-shot state sync — in case events fired before this mount.
+  syncFfmpegState()
 })
 
 onUnmounted(() => {
