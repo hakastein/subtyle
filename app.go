@@ -368,19 +368,19 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) 
 }
 
 // EnsureFullTrack upgrades a previously styles-only extracted track to include
-// all events. Call before preview or save for embedded tracks. No-op for
-// external files and already-full tracks.
-func (a *App) EnsureFullTrack(fileID string, videoPath string) (err error) {
+// all events. Returns the up-to-date events slice. No-op for external files
+// and already-full tracks (still returns current events).
+func (a *App) EnsureFullTrack(fileID string, videoPath string) (events []parser.SubtitleEvent, err error) {
 	defer a.guard("EnsureFullTrack", &err)
 	sf, ok := a.parsedFiles[fileID]
 	if !ok {
-		return fmt.Errorf("file %q not loaded", fileID)
+		return nil, fmt.Errorf("file %q not loaded", fileID)
 	}
 	if sf.Source != "embedded" || len(sf.Events) > 0 {
-		return nil
+		return sf.Events, nil
 	}
 	if videoPath == "" {
-		return fmt.Errorf("video path required for EnsureFullTrack(%q)", fileID)
+		return nil, fmt.Errorf("video path required for EnsureFullTrack(%q)", fileID)
 	}
 
 	_, fullPath := a.trackCachePaths(videoPath, sf.TrackID)
@@ -390,7 +390,7 @@ func (a *App) EnsureFullTrack(fileID string, videoPath string) (err error) {
 		if err := mkv.ExtractASSTrack(videoPath, sf.TrackID, fullPath); err != nil {
 			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("EnsureFullTrack: native failed (%v), ffmpeg fallback", err))
 			if err := a.extractor.ExtractTrack(context.Background(), videoPath, sf.TrackID, fullPath); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	} else {
@@ -399,12 +399,12 @@ func (a *App) EnsureFullTrack(fileID string, videoPath string) (err error) {
 
 	full, err := parser.ParseFile(fullPath)
 	if err != nil {
-		return fmt.Errorf("parse full: %w", err)
+		return nil, fmt.Errorf("parse full: %w", err)
 	}
 	// Preserve user-modified styles; replace only events + path.
 	sf.Events = full.Events
 	sf.Path = fullPath
-	return nil
+	return sf.Events, nil
 }
 
 // existsAndFresh reports whether outPath exists and its mtime is >= the source's mtime.
@@ -448,7 +448,7 @@ func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []par
 	// Preview needs events (for the subtitles filter to have anything to render).
 	// Lazily upgrade a styles-only track on first preview request.
 	if orig.Source == "embedded" && len(orig.Events) == 0 {
-		if err := a.EnsureFullTrack(fileID, videoPath); err != nil {
+		if _, err := a.EnsureFullTrack(fileID, videoPath); err != nil {
 			return nil, fmt.Errorf("ensure full track: %w", err)
 		}
 		orig = a.parsedFiles[fileID]
@@ -486,7 +486,7 @@ func (a *App) SaveFile(req SaveRequest) (string, error) {
 
 	// Save needs events — upgrade the track if it was only styles-loaded.
 	if sf.Source == "embedded" && len(sf.Events) == 0 {
-		if err := a.EnsureFullTrack(req.FileID, req.VideoPath); err != nil {
+		if _, err := a.EnsureFullTrack(req.FileID, req.VideoPath); err != nil {
 			return "", fmt.Errorf("ensure full track before save: %w", err)
 		}
 		sf = a.parsedFiles[req.FileID]

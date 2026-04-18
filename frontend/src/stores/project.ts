@@ -394,6 +394,16 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  /** Update the events slice for a loaded file (used after background full
+   * extraction completes). */
+  function setEventsFor(fileId: string, events: SubtitleEvent[]): void {
+    const file = loadedFiles.value.get(fileId)
+    if (!file) return
+    file.events = events
+    // Re-set in the Map so Vue reactivity picks up the change.
+    loadedFiles.value.set(fileId, { ...file, events })
+  }
+
   /** Append newly-discovered scanned files (e.g. embedded tracks found after
    * ffmpeg finished downloading). Deduplicates by path+trackIndex. */
   function appendScannedFiles(newFiles: ScannedFile[]): void {
@@ -640,6 +650,7 @@ export const useProjectStore = defineStore('project', () => {
     // Actions
     openFolder,
     appendScannedFiles,
+    setEventsFor,
     loadFile,
     extractTrack,
     selectStyle,

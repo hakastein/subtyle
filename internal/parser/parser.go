@@ -24,7 +24,19 @@ func ParseFile(path string) (*SubtitleFile, error) {
 	sf.Path = path
 	sf.ID = filepath.Base(path)
 	sf.Source = "external"
+	ensureNonNilSlices(sf)
 	return sf, nil
+}
+
+// ensureNonNilSlices guarantees Styles and Events are empty slices, not nil,
+// so that JSON serialization produces [] instead of null (frontend expects arrays).
+func ensureNonNilSlices(sf *SubtitleFile) {
+	if sf.Styles == nil {
+		sf.Styles = []SubtitleStyle{}
+	}
+	if sf.Events == nil {
+		sf.Events = []SubtitleEvent{}
+	}
 }
 
 // ParseBytes parses an ASS/SSA subtitle file from a byte slice.
@@ -41,6 +53,7 @@ func ParseBytes(data []byte, id string) (*SubtitleFile, error) {
 	}
 	sf.ID = id
 	sf.Source = "embedded"
+	ensureNonNilSlices(sf)
 	return sf, nil
 }
 

@@ -10,6 +10,9 @@ export const usePreviewStore = defineStore('preview', () => {
   const ffmpegProgress = ref(0)
   const currentTimeMs = ref(0)
   const videoDurationMs = ref(0)
+  // True while the backend is extracting events for the active file.
+  // Drives a shimmer overlay on the timeline.
+  const eventsLoading = ref(false)
 
   function setFrame(base64: string, tc: string): void {
     frameBase64.value = base64
@@ -20,5 +23,5 @@ export const usePreviewStore = defineStore('preview', () => {
   function setLoading(isLoading: boolean): void { loading.value = isLoading }
   function clearFrame(): void { frameBase64.value = null; timecode.value = '' }
 
-  return { frameBase64, timecode, loading, ffmpegReady, ffmpegDownloading, ffmpegProgress, currentTimeMs, videoDurationMs, setFrame, setLoading, clearFrame }
+  return { frameBase64, timecode, loading, ffmpegReady, ffmpegDownloading, ffmpegProgress, currentTimeMs, videoDurationMs, eventsLoading, setFrame, setLoading, clearFrame }
 })

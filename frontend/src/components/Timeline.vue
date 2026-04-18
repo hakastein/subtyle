@@ -8,6 +8,7 @@ import { durationToMs } from '@/services/types'
 interface Props {
   events: SubtitleEvent[]
   currentEventIndex: number
+  loading?: boolean
 }
 
 const props = defineProps<Props>()
@@ -57,7 +58,7 @@ function handleMarkerClick(index: number) {
       <NButton size="tiny" @click="emit('next')" :disabled="currentEventIndex >= events.length - 1">▶</NButton>
     </div>
 
-    <div class="timeline-track" v-if="events.length > 0">
+    <div class="timeline-track" :class="{ loading }" v-if="events.length > 0 || loading">
       <div
         v-for="(event, index) in events"
         :key="index"
@@ -67,6 +68,7 @@ function handleMarkerClick(index: number) {
         :title="event.text"
         @click="handleMarkerClick(index)"
       />
+      <div v-if="loading" class="timeline-shimmer-label">Scanning events...</div>
     </div>
     <div v-else class="timeline-empty">
       <NText depth="3" style="font-size: 11px">{{ t('timeline.noEvents') }}</NText>
@@ -123,5 +125,39 @@ function handleMarkerClick(index: number) {
   justify-content: center;
   align-items: center;
   height: 20px;
+}
+
+/* Shimmer animation for loading state. Sliding gradient looks like typical
+ * indeterminate progress bars. */
+.timeline-track.loading {
+  position: relative;
+  background: linear-gradient(
+    90deg,
+    rgba(24, 160, 88, 0.08) 0%,
+    rgba(24, 160, 88, 0.22) 50%,
+    rgba(24, 160, 88, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: timeline-shimmer 1.4s linear infinite;
+}
+
+.timeline-shimmer-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes timeline-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 </style>

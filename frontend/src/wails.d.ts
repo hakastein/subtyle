@@ -1,4 +1,4 @@
-import type { FolderScanResult, SubtitleFile, SubtitleStyle, FrameResult, ProjectState } from './services/types'
+import type { FolderScanResult, SubtitleFile, SubtitleStyle, SubtitleEvent, FrameResult, ProjectState } from './services/types'
 
 declare global {
   interface Window {
@@ -10,7 +10,7 @@ declare global {
           ScanFolder(dir: string): Promise<FolderScanResult>
           ParseFile(path: string): Promise<SubtitleFile>
           ExtractTrack(videoPath: string, trackIndex: number, trackTitle: string): Promise<SubtitleFile>
-          EnsureFullTrack(fileId: string, videoPath: string): Promise<void>
+          EnsureFullTrack(fileId: string, videoPath: string): Promise<SubtitleEvent[]>
           GeneratePreviewFrame(fileId: string, videoPath: string, styles: SubtitleStyle[], atMs: number): Promise<FrameResult>
           SaveFile(req: { fileId: string; videoPath: string; styles: SubtitleStyle[] }): Promise<string>
           SaveAll(requests: Array<{ fileId: string; videoPath: string; styles: SubtitleStyle[] }>): Promise<string[]>

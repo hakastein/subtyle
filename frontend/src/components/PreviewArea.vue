@@ -57,6 +57,42 @@ watch(
   { immediate: true },
 )
 
+// Background full-track prefetch when active file has styles-only loaded.
+// Shows a shimmer on the timeline while events are being extracted.
+const prefetchInFlight = new Set<string>()
+watch(
+  () => activeFile.value,
+  async (file) => {
+    if (!file) {
+      previewStore.eventsLoading = false
+      return
+    }
+    if (file.events.length > 0) {
+      previewStore.eventsLoading = false
+      return
+    }
+    if (file.source !== 'embedded' || !file.videoPath) {
+      previewStore.eventsLoading = false
+      return
+    }
+    if (prefetchInFlight.has(file.id)) return
+    prefetchInFlight.add(file.id)
+    previewStore.eventsLoading = true
+    try {
+      debug.info(`prefetch full events for ${file.id}`)
+      const events = await window.go.main.App.EnsureFullTrack(file.id, file.videoPath)
+      projectStore.setEventsFor(file.id, events ?? [])
+      debug.info(`prefetch done for ${file.id}: ${events?.length ?? 0} events`)
+    } catch (err) {
+      debug.error(`prefetch failed: ${err}`)
+    } finally {
+      prefetchInFlight.delete(file.id)
+      previewStore.eventsLoading = false
+    }
+  },
+  { immediate: true },
+)
+
 // Debounce timer
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -197,6 +233,7 @@ watch(
       <Timeline
         :events="currentEvents"
         :current-event-index="currentEventIndex"
+        :loading="previewStore.eventsLoading"
         @seek="handleSeek"
         @prev="handlePrev"
         @next="handleNext"
