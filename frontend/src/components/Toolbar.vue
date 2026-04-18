@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NSelect, NSpace } from 'naive-ui'
+import { NButton, NSelect, NSpace, NProgress } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
 import { useUndoStore } from '@/stores/undo'
+import { useProgressStore } from '@/stores/progress'
 import { setLocale } from '@/i18n'
 
 const { t, locale } = useI18n()
 const projectStore = useProjectStore()
 const undoStore = useUndoStore()
+const progressStore = useProgressStore()
 
 const langOptions = [
   { label: 'EN', value: 'en' },
@@ -57,6 +59,18 @@ function handleRedo() {
         {{ t('toolbar.redo') }}
       </NButton>
     </NSpace>
+    <div v-if="progressStore.scan.active" class="scan-progress">
+      <NProgress
+        type="line"
+        :percentage="progressStore.scan.total > 0
+          ? Math.round((progressStore.scan.current / progressStore.scan.total) * 100)
+          : 0"
+        :indicator-placement="'inside'"
+        :height="14"
+        style="width: 200px"
+      />
+      <span class="scan-message">{{ progressStore.scan.message }}</span>
+    </div>
     <NSelect
       v-model:value="currentLocale"
       :options="langOptions"
@@ -76,5 +90,19 @@ function handleRedo() {
   border-bottom: 1px solid var(--n-border-color, #e0e0e6);
   background: var(--n-color, #fff);
   flex-shrink: 0;
+}
+.scan-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 16px;
+}
+.scan-message {
+  font-size: 11px;
+  color: var(--n-text-color-3, #888);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

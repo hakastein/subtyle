@@ -119,18 +119,27 @@ func (a *App) OpenFolder() (string, error) {
 // For video files that have embedded ASS tracks, those tracks are added
 // as additional ScannedFile entries.
 func (a *App) ScanFolder(dir string) (*scan.FolderScanResult, error) {
+	runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{
+		"stage":   "reading",
+		"current": 0,
+		"total":   0,
+		"message": "Reading directory",
+	})
+
 	result, err := scan.ScanFolder(dir)
 	if err != nil {
+		runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{"stage": "done"})
 		return nil, err
 	}
 
 	if a.extractor != nil {
 		if err := a.scanEmbeddedTracks(dir, result); err != nil {
-			// Non-fatal: return what we have from the basic scan.
+			runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{"stage": "done"})
 			return result, nil
 		}
 	}
 
+	runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{"stage": "done"})
 	return result, nil
 }
 
@@ -146,15 +155,25 @@ func (a *App) scanEmbeddedTracks(dir string, result *scan.FolderScanResult) erro
 		".mp4": true, ".mkv": true, ".avi": true, ".mov": true, ".webm": true,
 	}
 
+	// First pass: collect video files so we know the total
+	var videoFiles []string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if !videoExts[ext] {
-			continue
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if videoExts[ext] {
+			videoFiles = append(videoFiles, entry.Name())
 		}
+	}
+
+	for i, name := range videoFiles {
+		runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{
+			"stage":   "probing",
+			"current": i + 1,
+			"total":   len(videoFiles),
+			"message": fmt.Sprintf("Probing %s", name),
+		})
 
 		videoPath := filepath.Join(dir, name)
 		tracks, err := a.extractor.ListTracks(context.Background(), videoPath)
@@ -169,7 +188,6 @@ func (a *App) scanEmbeddedTracks(dir string, result *scan.FolderScanResult) erro
 			Tracks:    tracks,
 		})
 	}
-
 	return nil
 }
 

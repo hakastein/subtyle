@@ -5,6 +5,7 @@ import { useMessage } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
 import { usePreviewStore } from '@/stores/preview'
 import { useDebugStore } from '@/stores/debug'
+import { useProgressStore } from '@/stores/progress'
 import {
   onFFmpegReady,
   onFFmpegDownloading,
@@ -24,6 +25,7 @@ const message = useMessage()
 const projectStore = useProjectStore()
 const previewStore = usePreviewStore()
 const debug = useDebugStore()
+const progressStore = useProgressStore()
 
 // Keyboard shortcuts
 function handleKeydown(e: KeyboardEvent) {
@@ -125,6 +127,16 @@ onMounted(() => {
   // Backend debug logs
   window.runtime.EventsOn('debug:log', (msg: unknown) => {
     debug.info(`[backend] ${msg}`)
+  })
+
+  window.runtime.EventsOn('progress:scan', (data: unknown) => {
+    const d = data as { stage: string; current?: number; total?: number; message?: string }
+    if (d.stage === 'done') {
+      progressStore.finishScan()
+    } else {
+      progressStore.updateScan(d.current ?? 0, d.total ?? 0, d.message ?? '')
+      progressStore.scan.active = true
+    }
   })
 
   // Poll ffmpeg status to catch race condition where event fired before mount
