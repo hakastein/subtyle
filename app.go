@@ -244,8 +244,15 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) 
 	stableID := fmt.Sprintf("%s:track:%d", filepath.Base(videoPath), trackIndex)
 	outPath := filepath.Join(extractDir, fmt.Sprintf("%s_track%d.ass", filepath.Base(videoPath), trackIndex))
 
-	if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, outPath); err != nil {
-		return nil, err
+	// Skip extraction if the output already exists and is newer than the source video.
+	// This avoids re-demuxing the entire MKV when the user reopens the same folder.
+	if existsAndFresh(outPath, videoPath) {
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: cache hit %s", filepath.Base(outPath)))
+	} else {
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: extracting %s track %d", filepath.Base(videoPath), trackIndex))
+		if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, outPath); err != nil {
+			return nil, err
+		}
 	}
 
 	sf, err = parser.ParseFile(outPath)
@@ -259,6 +266,20 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) 
 	sf.TrackTitle = trackTitle
 	a.parsedFiles[sf.ID] = sf
 	return sf, nil
+}
+
+// existsAndFresh reports whether outPath exists and its mtime is >= the source's mtime.
+// A stale extract (source changed after extraction) is treated as missing.
+func existsAndFresh(outPath, srcPath string) bool {
+	out, err := os.Stat(outPath)
+	if err != nil || out.IsDir() || out.Size() == 0 {
+		return false
+	}
+	src, err := os.Stat(srcPath)
+	if err != nil {
+		return false
+	}
+	return !out.ModTime().Before(src.ModTime())
 }
 
 // sanitizeFilename replaces characters that are invalid in Windows filenames
