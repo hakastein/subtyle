@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { ScannedFile, SubtitleStyle, SubtitleEvent, UndoChange, ProjectState, FileState } from '@/services/types'
+import type { ScannedFile, SubtitleStyle, SubtitleEvent, UndoChange, ProjectState, FileState, Translation, TranslationInstance } from '@/services/types'
 import { useUndoStore } from './undo'
 import { usePreviewStore } from './preview'
 import { useDebugStore } from './debug'
+import { useProgressStore } from './progress'
 import * as scanService from '@/services/scan'
 import * as parserService from '@/services/parser'
 import * as editorService from '@/services/editor'
@@ -27,20 +28,6 @@ export interface VideoEntry {
   videoPath: string
   videoName: string
   episode: number | null
-}
-
-export interface SourceTypeInstance {
-  videoPath: string
-  subtitlePath?: string  // for external
-  trackIndex?: number    // for embedded
-  trackTitle?: string    // for embedded
-}
-
-export interface SourceType {
-  key: string
-  label: string
-  kind: 'external' | 'embedded'
-  perVideo: SourceTypeInstance[]
 }
 
 export interface GroupedStyleInstance {
@@ -70,9 +57,9 @@ export const useProjectStore = defineStore('project', () => {
   const selectedStyleKeys = ref<string[]>([]) // format: "fileId::styleName"
   const dirty = ref(false)
 
-  // New video-centric state for the split FileTree UI
-  const fileChecks = ref<Map<string, boolean>>(new Map()) // videoPath → checked
-  const selectedSourceKey = ref<string | null>(null)
+  // Translation-first selection state
+  const episodeChecks = ref<Map<string, boolean>>(new Map()) // videoPath → checked
+  const selectedTranslationKeys = ref<string[]>([])
   const sourceLoadingState = ref<'idle' | 'loading'>('idle')
 
   // Computed
@@ -111,90 +98,96 @@ export const useProjectStore = defineStore('project', () => {
     }))
   })
 
-  // All available subtitle source types across all videos in the folder.
-  // External sources are grouped by filename suffix (after stripping video base name).
-  // Embedded sources are grouped by track title.
-  const sourceTypes = computed<SourceType[]>(() => {
-    const byKey = new Map<string, SourceType>()
+  // Available translations across all videos in the folder.
+  const translations = computed<Translation[]>(() => {
+    const totalVideos = videoEntries.value.length
+    const byKey = new Map<string, Translation>()
 
     for (const sf of scannedFiles.value) {
       if (sf.type === 'external' && sf.videoPath) {
         const suffix = subtitleSuffix(sf.videoPath, sf.path)
         const key = `ext:${suffix}`
         if (!byKey.has(key)) {
-          byKey.set(key, { key, label: suffix || sf.path, kind: 'external', perVideo: [] })
+          byKey.set(key, {
+            key,
+            label: suffix || sf.path,
+            kind: 'external',
+            perEpisode: {},
+            coverageCount: 0,
+            totalEpisodes: totalVideos,
+          })
         }
-        byKey.get(key)!.perVideo.push({ videoPath: sf.videoPath, subtitlePath: sf.path })
+        const t = byKey.get(key)!
+        t.perEpisode[sf.videoPath] = { videoPath: sf.videoPath, subtitlePath: sf.path }
       } else if (sf.type === 'embedded') {
         for (const track of sf.tracks) {
           const title = track.title || `Track ${track.index}`
           const key = `emb:${title}:${track.language}`
           if (!byKey.has(key)) {
-            const label = track.language ? `${title} (${track.language})` : title
-            byKey.set(key, { key, label, kind: 'embedded', perVideo: [] })
+            byKey.set(key, {
+              key,
+              label: track.language ? `${title} (${track.language})` : title,
+              kind: 'embedded',
+              perEpisode: {},
+              coverageCount: 0,
+              totalEpisodes: totalVideos,
+            })
           }
-          byKey.get(key)!.perVideo.push({
+          const t = byKey.get(key)!
+          t.perEpisode[sf.videoPath] = {
             videoPath: sf.videoPath,
             trackIndex: track.index,
             trackTitle: track.title,
-          })
+          }
         }
       }
     }
 
-    return Array.from(byKey.values()).sort((a, b) => a.label.localeCompare(b.label))
+    for (const t of byKey.values()) {
+      t.coverageCount = Object.keys(t.perEpisode).length
+    }
+
+    return Array.from(byKey.values()).sort((a, b) => b.coverageCount - a.coverageCount || a.label.localeCompare(b.label))
   })
 
-  /** Get loaded file for a given video path matching the selected source. */
-  function findLoadedForSource(videoPath: string, source: SourceType): LoadedFile | null {
-    const inst = source.perVideo.find(i => i.videoPath === videoPath)
-    if (!inst) return null
-
-    if (source.kind === 'external' && inst.subtitlePath) {
-      const fileId = basename(inst.subtitlePath)
-      return loadedFiles.value.get(fileId) ?? null
-    }
-    if (source.kind === 'embedded' && inst.trackIndex !== undefined) {
-      const fileId = `${basename(videoPath)}:track:${inst.trackIndex}`
-      return loadedFiles.value.get(fileId) ?? null
-    }
-    return null
-  }
-
-  // Styles grouped by name for the currently selected source, across checked files.
+  // Styles grouped by name for the currently selected translations × checked episodes.
   const groupedStyles = computed<GroupedStyle[]>(() => {
-    if (!selectedSourceKey.value) return []
-    const source = sourceTypes.value.find(s => s.key === selectedSourceKey.value)
-    if (!source) return []
+    if (selectedTranslationKeys.value.length === 0) return []
 
     const groups = new Map<string, GroupedStyle>()
 
-    for (const entry of videoEntries.value) {
-      const checked = fileChecks.value.get(entry.videoPath) ?? true
-      if (!checked) continue
+    for (const transKey of selectedTranslationKeys.value) {
+      const trans = translations.value.find(t => t.key === transKey)
+      if (!trans) continue
 
-      const loaded = findLoadedForSource(entry.videoPath, source)
-      if (!loaded) continue
+      for (const entry of videoEntries.value) {
+        const checked = episodeChecks.value.get(entry.videoPath) ?? false
+        if (!checked) continue
+        const inst = trans.perEpisode[entry.videoPath]
+        if (!inst) continue
 
-      for (const style of loaded.modifiedStyles) {
-        if (!groups.has(style.name)) {
-          groups.set(style.name, {
+        const loaded = findLoadedForInstance(inst, trans.kind)
+        if (!loaded) continue
+
+        for (const style of loaded.modifiedStyles) {
+          if (!groups.has(style.name)) {
+            groups.set(style.name, {
+              styleName: style.name,
+              representative: style,
+              instances: [],
+              episodesLabel: '',
+            })
+          }
+          groups.get(style.name)!.instances.push({
+            videoPath: entry.videoPath,
+            episode: entry.episode,
+            fileId: loaded.id,
             styleName: style.name,
-            representative: style,
-            instances: [],
-            episodesLabel: '',
           })
         }
-        groups.get(style.name)!.instances.push({
-          videoPath: entry.videoPath,
-          episode: entry.episode,
-          fileId: loaded.id,
-          styleName: style.name,
-        })
       }
     }
 
-    // Compute episode ranges for each group
     for (const group of groups.values()) {
       const eps = group.instances.map(i => i.episode).filter((e): e is number => e !== null)
       group.episodesLabel = eps.length > 0 ? collapseRanges(eps) : ''
@@ -202,6 +195,16 @@ export const useProjectStore = defineStore('project', () => {
 
     return Array.from(groups.values()).sort((a, b) => a.styleName.localeCompare(b.styleName))
   })
+
+  function findLoadedForInstance(inst: TranslationInstance, kind: 'external' | 'embedded') {
+    if (kind === 'external' && inst.subtitlePath) {
+      return loadedFiles.value.get(basename(inst.subtitlePath)) ?? null
+    }
+    if (kind === 'embedded' && inst.trackIndex !== undefined) {
+      return loadedFiles.value.get(`${basename(inst.videoPath)}:track:${inst.trackIndex}`) ?? null
+    }
+    return null
+  }
 
   /** Set selection to all instances of the given grouped style. */
   function selectGroupedStyle(styleName: string, additive: boolean = false): void {
@@ -217,39 +220,88 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  /** Auto-load all subtitles for the selected source type across checked videos. */
-  async function loadSourceStyles(): Promise<void> {
-    if (!selectedSourceKey.value) return
-    const source = sourceTypes.value.find(s => s.key === selectedSourceKey.value)
-    if (!source) return
+  /** Load subtitles for all selected translations × checked episodes. */
+  async function loadTranslationStyles(): Promise<void> {
+    if (selectedTranslationKeys.value.length === 0) return
+
+    const progress = useProgressStore()
+
+    // Count total loads needed upfront
+    const toLoad: Array<{ trans: Translation; inst: TranslationInstance }> = []
+    for (const key of selectedTranslationKeys.value) {
+      const trans = translations.value.find(t => t.key === key)
+      if (!trans) continue
+      for (const entry of videoEntries.value) {
+        const checked = episodeChecks.value.get(entry.videoPath) ?? false
+        if (!checked) continue
+        const inst = trans.perEpisode[entry.videoPath]
+        if (!inst) continue
+        if (findLoadedForInstance(inst, trans.kind)) continue
+        toLoad.push({ trans, inst })
+      }
+    }
+
+    if (toLoad.length === 0) return
 
     sourceLoadingState.value = 'loading'
+    progress.startLoad(`Loading styles`, toLoad.length)
     try {
-      for (const inst of source.perVideo) {
-        const checked = fileChecks.value.get(inst.videoPath) ?? true
-        if (!checked) continue
+      for (let i = 0; i < toLoad.length; i++) {
+        const { trans, inst } = toLoad[i]
+        progress.updateLoad(i, toLoad.length, `Loading ${basename(inst.videoPath)}`)
 
-        if (source.kind === 'external' && inst.subtitlePath) {
-          const fileId = basename(inst.subtitlePath)
-          if (loadedFiles.value.has(fileId)) continue
+        if (trans.kind === 'external' && inst.subtitlePath) {
           const scanned = scannedFiles.value.find(f => f.path === inst.subtitlePath)
           if (scanned) await loadFile(scanned)
-        } else if (source.kind === 'embedded' && inst.trackIndex !== undefined) {
-          const fileId = `${basename(inst.videoPath)}:track:${inst.trackIndex}`
-          if (loadedFiles.value.has(fileId)) continue
+        } else if (trans.kind === 'embedded' && inst.trackIndex !== undefined) {
           await extractTrack(inst.videoPath, inst.trackIndex, inst.trackTitle || '')
         }
       }
+      progress.updateLoad(toLoad.length, toLoad.length, 'Done')
     } finally {
       sourceLoadingState.value = 'idle'
+      progress.finishLoad()
     }
   }
 
-  // Watch source / file-checks changes to auto-load.
-  watch([selectedSourceKey, fileChecks], () => {
-    if (selectedSourceKey.value) {
-      loadSourceStyles().catch((err: unknown) => {
-        debug.error(`loadSourceStyles failed: ${err}`)
+  /** Translation selection handlers. */
+  function selectTranslation(key: string, additive: boolean = false): void {
+    if (additive) {
+      const idx = selectedTranslationKeys.value.indexOf(key)
+      if (idx >= 0) {
+        selectedTranslationKeys.value = selectedTranslationKeys.value.filter(k => k !== key)
+      } else {
+        selectedTranslationKeys.value = [...selectedTranslationKeys.value, key]
+      }
+    } else {
+      selectedTranslationKeys.value = [key]
+    }
+    // Recompute episode checks as union of covered videos across selected translations
+    const coveredPaths = new Set<string>()
+    for (const tk of selectedTranslationKeys.value) {
+      const t = translations.value.find(x => x.key === tk)
+      if (!t) continue
+      for (const vp of Object.keys(t.perEpisode)) {
+        coveredPaths.add(vp)
+      }
+    }
+    const next = new Map<string, boolean>()
+    for (const e of videoEntries.value) {
+      next.set(e.videoPath, coveredPaths.has(e.videoPath))
+    }
+    episodeChecks.value = next
+  }
+
+  function toggleEpisode(videoPath: string, value: boolean): void {
+    const next = new Map(episodeChecks.value)
+    next.set(videoPath, value)
+    episodeChecks.value = next
+  }
+
+  watch([selectedTranslationKeys, episodeChecks], () => {
+    if (selectedTranslationKeys.value.length > 0) {
+      loadTranslationStyles().catch((err: unknown) => {
+        debug.error(`loadTranslationStyles failed: ${err}`)
       })
     }
   }, { deep: true })
@@ -266,8 +318,8 @@ export const useProjectStore = defineStore('project', () => {
     loadedFiles.value = new Map()
     selectedStyleKeys.value = []
     dirty.value = false
-    fileChecks.value = new Map()
-    selectedSourceKey.value = null
+    episodeChecks.value = new Map()
+    selectedTranslationKeys.value = []
     undoStore.clear()
     previewStore.clearFrame()
 
@@ -277,13 +329,6 @@ export const useProjectStore = defineStore('project', () => {
     for (const f of result.files) {
       debug.info(`  ${f.type}: ${f.path} → video: ${f.videoPath || 'none'}`)
     }
-
-    // Initialize all video checkboxes as checked
-    const checks = new Map<string, boolean>()
-    for (const entry of videoEntries.value) {
-      checks.set(entry.videoPath, true)
-    }
-    fileChecks.value = checks
   }
 
   async function loadFile(scannedFile: ScannedFile): Promise<LoadedFile> {
@@ -512,14 +557,16 @@ export const useProjectStore = defineStore('project', () => {
     dirty,
     activeFile,
     selectedStyles,
-    // Video-centric state
-    fileChecks,
-    selectedSourceKey,
+    // Translation-first state
+    episodeChecks,
+    selectedTranslationKeys,
     sourceLoadingState,
     videoEntries,
-    sourceTypes,
+    translations,
     groupedStyles,
     selectGroupedStyle,
+    selectTranslation,
+    toggleEpisode,
     // Actions
     openFolder,
     loadFile,

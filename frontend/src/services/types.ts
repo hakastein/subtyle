@@ -103,6 +103,22 @@ export interface ProjectState {
   selectedStyles: string[]
 }
 
+export interface TranslationInstance {
+  videoPath: string
+  subtitlePath?: string
+  trackIndex?: number
+  trackTitle?: string
+}
+
+export interface Translation {
+  key: string
+  label: string
+  kind: 'external' | 'embedded'
+  perEpisode: Record<string, TranslationInstance> // videoPath → instance
+  coverageCount: number
+  totalEpisodes: number
+}
+
 /** Convert Go time.Duration (nanoseconds) to milliseconds */
 export function durationToMs(ns: number): number {
   return Math.round(ns / 1_000_000)

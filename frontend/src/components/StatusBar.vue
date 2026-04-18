@@ -24,16 +24,13 @@ const ffmpegStatus = computed(() => {
 const episodesCount = computed(() => {
   const total = projectStore.videoEntries.length
   let checked = 0
-  for (const [, v] of projectStore.fileChecks) {
+  for (const [, v] of projectStore.episodeChecks) {
     if (v) checked++
   }
   return `${checked}/${total}`
 })
 
-const translationsCount = computed(() => {
-  // Placeholder until Task 9 lands: show sourceTypes length
-  return projectStore.sourceTypes?.length ?? 0
-})
+const translationsCount = computed(() => projectStore.selectedTranslationKeys.length)
 
 const stylesGroupsCount = computed(() => projectStore.groupedStyles.length)
 </script>
