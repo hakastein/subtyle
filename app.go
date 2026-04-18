@@ -13,6 +13,7 @@ import (
 	"subtitles-editor/internal/crashlog"
 	"subtitles-editor/internal/ffmpeg"
 	i18nPkg "subtitles-editor/internal/i18n"
+	"subtitles-editor/internal/mkv"
 	"subtitles-editor/internal/parser"
 	"subtitles-editor/internal/preview"
 	"subtitles-editor/internal/project"
@@ -250,8 +251,16 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) 
 		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: cache hit %s", filepath.Base(outPath)))
 	} else {
 		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: extracting %s track %d", filepath.Base(videoPath), trackIndex))
-		if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, outPath); err != nil {
-			return nil, err
+		// Try native MKV extraction first (fast: reads only the needed blocks).
+		// Fall back to ffmpeg if the file is not MKV or the track is not ASS/SSA.
+		nativeErr := mkv.ExtractASSTrack(videoPath, trackIndex, outPath)
+		if nativeErr == nil {
+			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("[mkv native] extracted %s track %d", filepath.Base(videoPath), trackIndex))
+		} else {
+			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: native mkv failed (%v), falling back to ffmpeg", nativeErr))
+			if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, outPath); err != nil {
+				return nil, err
+			}
 		}
 	}
 

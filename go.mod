@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/asticode/go-astisub v0.39.0
+	github.com/remko/go-mkvparse v0.14.0
 	github.com/wailsapp/wails/v2 v2.12.0
 )
 
