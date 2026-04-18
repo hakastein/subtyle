@@ -242,3 +242,69 @@ func TestBuildFrameArgs_SeekBelowThreshold(t *testing.T) {
 		t.Errorf("fine seek for 5s = %q, want 5.000", ssFine)
 	}
 }
+
+func TestBuildBaseFrameArgs(t *testing.T) {
+	args := buildBaseFrameArgs("/videos/ep01.mkv", 30*time.Second, 960, "/tmp/base.png")
+
+	// No -vf subtitles=, just scale
+	var vfArg string
+	for i, a := range args {
+		if a == "-vf" && i+1 < len(args) {
+			vfArg = args[i+1]
+		}
+	}
+	if vfArg != "scale=960:-1" {
+		t.Errorf("-vf = %q, want scale=960:-1", vfArg)
+	}
+
+	// Last arg should be the output path
+	last := args[len(args)-1]
+	if last != "/tmp/base.png" {
+		t.Errorf("last arg = %q, want output path", last)
+	}
+
+	// Should use double-seek
+	ssCount := 0
+	for _, a := range args {
+		if a == "-ss" {
+			ssCount++
+		}
+	}
+	if ssCount != 2 {
+		t.Errorf("expected 2 -ss flags, got %d", ssCount)
+	}
+}
+
+func TestBuildOverlayArgs(t *testing.T) {
+	args := buildOverlayArgs("/tmp/base.png", "/tmp/sub.ass", 21*time.Second)
+
+	var offset string
+	for i, a := range args {
+		if a == "-itsoffset" && i+1 < len(args) {
+			offset = args[i+1]
+		}
+	}
+	if offset != "21.000" {
+		t.Errorf("-itsoffset = %q, want 21.000", offset)
+	}
+
+	hasLoop := false
+	for i, a := range args {
+		if a == "-loop" && i+1 < len(args) && args[i+1] == "1" {
+			hasLoop = true
+		}
+	}
+	if !hasLoop {
+		t.Error("expected -loop 1")
+	}
+
+	var vfArg string
+	for i, a := range args {
+		if a == "-vf" && i+1 < len(args) {
+			vfArg = args[i+1]
+		}
+	}
+	if !strings.Contains(vfArg, "subtitles=") {
+		t.Errorf("-vf missing subtitles: %q", vfArg)
+	}
+}

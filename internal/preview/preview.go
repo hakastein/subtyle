@@ -11,31 +11,31 @@ import (
 	"subtitles-editor/internal/parser"
 )
 
-// FrameResult holds a rendered preview frame as base64 PNG and its timecode.
 type FrameResult struct {
 	Base64PNG string `json:"base64Png"`
 	Timecode  string `json:"timecode"`
 }
 
-// Generator manages preview frame generation, cancelling any in-progress
-// generation when a new request arrives.
+// Generator manages preview frame generation with cancellation and a
+// base-frame disk cache for fast re-renders at the same timecode.
 type Generator struct {
 	extractor *ffmpeg.Extractor
+	cache     *Cache
 	mu        sync.Mutex
 	cancelFn  context.CancelFunc
 	genID     int64
 }
 
-// NewGenerator creates a Generator backed by the given Extractor.
-func NewGenerator(extractor *ffmpeg.Extractor) *Generator {
-	return &Generator{extractor: extractor}
+// NewGenerator creates a Generator backed by the given Extractor and cache.
+// Pass a nil cache to disable caching entirely.
+func NewGenerator(extractor *ffmpeg.Extractor, cache *Cache) *Generator {
+	return &Generator{extractor: extractor, cache: cache}
 }
 
-// GenerateFrame cancels any pending generation, then renders a single frame
-// from videoPath at the given offset using the styles from subFile.
-// Returns the frame as a base64 PNG and the formatted timecode.
+// GenerateFrame produces a frame with subtitles burned in. When the cache is
+// enabled, the base frame (no subtitles) is cached, and only the overlay pass
+// runs on subsequent style edits at the same timecode.
 func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile *parser.SubtitleFile, at time.Duration, widthPx int) (*FrameResult, error) {
-	// Cancel previous generation if one is in progress.
 	g.mu.Lock()
 	if g.cancelFn != nil {
 		g.cancelFn()
@@ -48,7 +48,6 @@ func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile
 
 	defer func() {
 		g.mu.Lock()
-		// Only clear if this is still the active generation.
 		if g.genID == myID {
 			g.cancelFn = nil
 		}
@@ -56,26 +55,43 @@ func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile
 		cancel()
 	}()
 
-	// Write a temporary ASS file with the current styles.
-	tmpPath, err := parser.WriteTempFile(subFile)
+	tmpSubPath, err := parser.WriteTempFile(subFile)
 	if err != nil {
-		return nil, fmt.Errorf("preview: writing temp file: %w", err)
+		return nil, fmt.Errorf("preview: write temp subtitle: %w", err)
 	}
-	defer os.Remove(tmpPath)
+	defer os.Remove(tmpSubPath)
 
-	// Extract the frame via ffmpeg.
-	base64PNG, err := g.extractor.ExtractFrame(genCtx, videoPath, tmpPath, at, widthPx)
+	// If cache is disabled, fall back to single-pass rendering.
+	if g.cache == nil {
+		base64PNG, err := g.extractor.ExtractFrame(genCtx, videoPath, tmpSubPath, at, widthPx)
+		if err != nil {
+			return nil, fmt.Errorf("preview: extract frame: %w", err)
+		}
+		return &FrameResult{Base64PNG: base64PNG, Timecode: formatTimecode(at)}, nil
+	}
+
+	// Two-pass with cache.
+	key := g.cache.Key(videoPath, at, widthPx)
+	basePath := g.cache.Path(key)
+
+	if !g.cache.Exists(key) {
+		if err := g.extractor.ExtractBaseFrame(genCtx, videoPath, at, widthPx, basePath); err != nil {
+			return nil, fmt.Errorf("preview: extract base frame: %w", err)
+		}
+		// Read back and rewrite through cache.Write so LRU accounting runs.
+		if data, err := os.ReadFile(basePath); err == nil {
+			_ = g.cache.Write(key, data)
+		}
+	}
+
+	base64PNG, err := g.extractor.OverlayFrame(genCtx, basePath, tmpSubPath, at)
 	if err != nil {
-		return nil, fmt.Errorf("preview: extracting frame: %w", err)
+		return nil, fmt.Errorf("preview: overlay frame: %w", err)
 	}
 
-	return &FrameResult{
-		Base64PNG: base64PNG,
-		Timecode:  formatTimecode(at),
-	}, nil
+	return &FrameResult{Base64PNG: base64PNG, Timecode: formatTimecode(at)}, nil
 }
 
-// formatTimecode formats a duration as HH:MM:SS.mmm.
 func formatTimecode(d time.Duration) string {
 	h := int(d.Hours())
 	m := int(d.Minutes()) % 60

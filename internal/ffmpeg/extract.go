@@ -157,6 +157,73 @@ func buildFrameArgs(videoPath, subPath string, at time.Duration, widthPx int) []
 	}
 }
 
+// buildBaseFrameArgs constructs arguments for extracting a base frame (no subtitles)
+// scaled to widthPx wide, written to outputPath. Uses double-seek.
+func buildBaseFrameArgs(videoPath string, at time.Duration, widthPx int, outputPath string) []string {
+	totalSec := at.Seconds()
+	fastSec := totalSec - 10.0
+	if fastSec < 0 {
+		fastSec = 0
+	}
+	fineSec := totalSec - fastSec
+
+	vf := fmt.Sprintf("scale=%d:-1", widthPx)
+	return []string{
+		"-ss", fmt.Sprintf("%.3f", fastSec),
+		"-i", videoPath,
+		"-ss", fmt.Sprintf("%.3f", fineSec),
+		"-vf", vf,
+		"-frames:v", "1",
+		"-y",
+		outputPath,
+	}
+}
+
+// buildOverlayArgs constructs arguments for applying subtitles to a pre-rendered
+// base frame (PNG). Uses -itsoffset so the subtitles filter sees the frame at
+// time `at` rather than 0.
+func buildOverlayArgs(basePath, subPath string, at time.Duration) []string {
+	vf := fmt.Sprintf("subtitles='%s'", escapeFilterPath(subPath))
+	return []string{
+		"-itsoffset", fmt.Sprintf("%.3f", at.Seconds()),
+		"-loop", "1",
+		"-i", basePath,
+		"-vf", vf,
+		"-t", "1",
+		"-frames:v", "1",
+		"-f", "image2",
+		"pipe:1",
+	}
+}
+
+// ExtractBaseFrame renders a subtitle-less frame to disk.
+func (e *Extractor) ExtractBaseFrame(ctx context.Context, videoPath string, at time.Duration, widthPx int, outputPath string) error {
+	args := buildBaseFrameArgs(videoPath, at, widthPx, outputPath)
+	cmd := exec.CommandContext(ctx, e.binPath, args...)
+	hideWindow(cmd)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("ffmpeg extract base frame: %w\nstderr: %s", err, stderr.String())
+	}
+	return nil
+}
+
+// OverlayFrame applies subtitles to an existing base frame PNG and returns
+// the result as a base64-encoded PNG.
+func (e *Extractor) OverlayFrame(ctx context.Context, basePath, subPath string, at time.Duration) (string, error) {
+	args := buildOverlayArgs(basePath, subPath, at)
+	cmd := exec.CommandContext(ctx, e.binPath, args...)
+	hideWindow(cmd)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	data, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("ffmpeg overlay frame: %w\nstderr: %s", err, stderr.String())
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
 // escapeFilterPath escapes a file path for use in ffmpeg filter expressions.
 // On Windows, backslashes and colons need special escaping.
 func escapeFilterPath(path string) string {

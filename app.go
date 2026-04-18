@@ -57,7 +57,7 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) initFFmpeg() {
 	if path := a.ffmpegMgr.Find(); path != "" {
 		a.extractor = ffmpeg.NewExtractor(path)
-		a.previewGen = preview.NewGenerator(a.extractor)
+		a.previewGen = preview.NewGenerator(a.extractor, preview.NewCache(filepath.Join(a.dataDir, "preview-cache"), 100*1024*1024))
 		diag := a.extractor.Diagnose(a.ctx)
 		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ffmpeg: %s | subtitles filter: %v | libass: %v", diag.Version, diag.HasSubtitlesFilter, diag.HasLibass))
 		if !diag.HasSubtitlesFilter {
@@ -79,7 +79,7 @@ func (a *App) initFFmpeg() {
 
 	path := a.ffmpegMgr.BinPath()
 	a.extractor = ffmpeg.NewExtractor(path)
-	a.previewGen = preview.NewGenerator(a.extractor)
+	a.previewGen = preview.NewGenerator(a.extractor, preview.NewCache(filepath.Join(a.dataDir, "preview-cache"), 100*1024*1024))
 	diag := a.extractor.Diagnose(a.ctx)
 	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ffmpeg downloaded: %s | subtitles filter: %v | libass: %v", diag.Version, diag.HasSubtitlesFilter, diag.HasLibass))
 	if !diag.HasSubtitlesFilter {
