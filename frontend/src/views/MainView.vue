@@ -16,7 +16,8 @@ import Toolbar from '@/components/Toolbar.vue'
 import FilePanel from '@/components/FilePanel.vue'
 import StyleEditor from '@/components/StyleEditor.vue'
 import PreviewArea from '@/components/PreviewArea.vue'
-import DebugPanel from '@/components/DebugPanel.vue'
+import DebugLog from '@/components/DebugLog.vue'
+import StatusBar from '@/components/StatusBar.vue'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -149,7 +150,8 @@ onUnmounted(() => {
         <StyleEditor />
       </aside>
     </div>
-    <DebugPanel />
+    <DebugLog />
+    <StatusBar />
   </div>
 </template>
 
