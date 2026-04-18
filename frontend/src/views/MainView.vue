@@ -149,6 +149,14 @@ onMounted(() => {
     }
   })
 
+  // Embedded tracks discovered after a delayed ffmpeg-ready — append to scan state.
+  window.runtime.EventsOn('scan:embedded-added', (data: unknown) => {
+    const files = data as Array<{ path: string; videoPath: string; type: string; tracks: unknown[] }>
+    if (!Array.isArray(files) || files.length === 0) return
+    debug.info(`scan:embedded-added received: ${files.length} entries`)
+    projectStore.appendScannedFiles(files as never)
+  })
+
   // One-shot state sync — in case events fired before this mount.
   syncFfmpegState()
 })

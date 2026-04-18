@@ -49,6 +49,9 @@ type App struct {
 
 	ffmpegStateMu sync.Mutex
 	ffmpegState   FfmpegState
+
+	lastFolderMu sync.Mutex
+	lastFolder   string
 }
 
 // setFfmpegState updates the bootstrap status and emits a snapshot event.
@@ -132,6 +135,28 @@ func (a *App) initFFmpeg() {
 	}
 	a.setFfmpegState("ready", 1, "")
 	runtime.EventsEmit(a.ctx, "ffmpeg:ready")
+
+	// If the user opened a folder before ffmpeg was ready, re-scan embedded tracks now.
+	a.lastFolderMu.Lock()
+	folder := a.lastFolder
+	a.lastFolderMu.Unlock()
+	if folder != "" {
+		a.rescanEmbeddedAfterReady(folder)
+	}
+}
+
+// rescanEmbeddedAfterReady runs scanEmbeddedTracks for a folder and emits
+// the newly-discovered entries as a "scan:embedded-added" event so the
+// frontend can append them to its scan state.
+func (a *App) rescanEmbeddedAfterReady(dir string) {
+	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("rescanning embedded tracks in %s", dir))
+	fresh := &scan.FolderScanResult{}
+	if err := a.scanEmbeddedTracks(dir, fresh); err != nil {
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("rescan failed: %v", err))
+		return
+	}
+	runtime.EventsEmit(a.ctx, "scan:embedded-added", fresh.Files)
+	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("rescan found %d embedded entries", len(fresh.Files)))
 }
 
 // IsFfmpegReady returns true if ffmpeg has been found or downloaded.
@@ -182,6 +207,13 @@ func (a *App) OpenFolder() (string, error) {
 // as additional ScannedFile entries.
 func (a *App) ScanFolder(dir string) (result *scan.FolderScanResult, err error) {
 	defer a.guard("ScanFolder", &err)
+
+	// Remember last folder so we can re-scan for embedded tracks once ffmpeg
+	// becomes available (in case user opened the folder before download finished).
+	a.lastFolderMu.Lock()
+	a.lastFolder = dir
+	a.lastFolderMu.Unlock()
+
 	runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{
 		"stage":   "reading",
 		"current": 0,

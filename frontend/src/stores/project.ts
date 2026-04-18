@@ -354,6 +354,17 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  /** Append newly-discovered scanned files (e.g. embedded tracks found after
+   * ffmpeg finished downloading). Deduplicates by path+trackIndex. */
+  function appendScannedFiles(newFiles: ScannedFile[]): void {
+    if (!newFiles || newFiles.length === 0) return
+    const existing = new Set(scannedFiles.value.map(f => `${f.path}|${f.type}`))
+    const toAdd = newFiles.filter(f => !existing.has(`${f.path}|${f.type}`))
+    if (toAdd.length === 0) return
+    scannedFiles.value = [...scannedFiles.value, ...toAdd]
+    debug.info(`appendScannedFiles: +${toAdd.length} (now ${scannedFiles.value.length})`)
+  }
+
   async function loadFile(scannedFile: ScannedFile): Promise<LoadedFile> {
     debug.info(`loadFile: ${scannedFile.path} (video: ${scannedFile.videoPath || 'none'})`)
     const parsed = await parserService.parseFile(scannedFile.path)
@@ -588,6 +599,7 @@ export const useProjectStore = defineStore('project', () => {
     toggleEpisode,
     // Actions
     openFolder,
+    appendScannedFiles,
     loadFile,
     extractTrack,
     selectStyle,
