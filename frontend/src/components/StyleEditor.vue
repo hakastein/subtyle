@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NInput,
@@ -75,6 +75,70 @@ function alignmentLabel(n: number): string {
   }
   return map[n] ?? String(n)
 }
+
+// --- RAW debug view ---
+// Format a style as the ASS "Style:" line matches our Go writer's output.
+// Mirrors renderStyleLine in internal/parser/writer.go.
+
+function boolToASS(b: boolean): string {
+  return b ? '-1' : '0'
+}
+
+function formatASSColor(c: Color): string {
+  // ASS format &HAABBGGRR — alpha is inverted (00=opaque, FF=transparent).
+  const toHex = (n: number) => n.toString(16).toUpperCase().padStart(2, '0')
+  const aa = 255 - c.a
+  return `&H${toHex(aa)}${toHex(c.b)}${toHex(c.g)}${toHex(c.r)}`
+}
+
+function formatFloat4g(n: number): string {
+  // Matches Go's %.4g formatter — up to 4 significant digits, strips trailing zeros.
+  if (!isFinite(n)) return String(n)
+  if (n === 0) return '0'
+  const abs = Math.abs(n)
+  let s: string
+  if (abs >= 1e-4 && abs < 1e5) {
+    s = n.toPrecision(4)
+    if (s.includes('.')) {
+      s = s.replace(/0+$/, '').replace(/\.$/, '')
+    }
+  } else {
+    s = n.toExponential(3).replace(/e\+?(-?)0*(\d)/, 'e$1$2')
+  }
+  return s
+}
+
+function rawStyleLine(style: {
+  name: string; fontName: string; fontSize: number
+  bold: boolean; italic: boolean; underline: boolean; strikeout: boolean
+  primaryColour: Color; secondaryColour: Color; outlineColour: Color; backColour: Color
+  outline: number; shadow: number
+  scaleX: number; scaleY: number; spacing: number; angle: number
+  alignment: number; marginL: number; marginR: number; marginV: number
+}): string {
+  return (
+    `Style: ${style.name},${style.fontName},${style.fontSize.toFixed(0)},` +
+    `${formatASSColor(style.primaryColour)},${formatASSColor(style.secondaryColour)},` +
+    `${formatASSColor(style.outlineColour)},${formatASSColor(style.backColour)},` +
+    `${boolToASS(style.bold)},${boolToASS(style.italic)},${boolToASS(style.underline)},${boolToASS(style.strikeout)},` +
+    `${style.scaleX.toFixed(0)},${style.scaleY.toFixed(0)},` +
+    `${formatFloat4g(style.spacing)},${formatFloat4g(style.angle)},` +
+    `1,${formatFloat4g(style.outline)},${formatFloat4g(style.shadow)},` +
+    `${style.alignment},${style.marginL},${style.marginR},${style.marginV},1`
+  )
+}
+
+const rawFormatHeader =
+  'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding'
+
+const rawLines = computed(() =>
+  selectedStyles.value.map(s => ({
+    fileId: s.fileId,
+    line: rawStyleLine(s.style),
+  })),
+)
+
+const showRaw = ref(false)
 </script>
 
 <template>
@@ -313,6 +377,22 @@ function alignmentLabel(n: number): string {
           </NFormItem>
         </NGridItem>
       </NGrid>
+
+      <!-- RAW debug view (hidden by default) -->
+      <div class="raw-debug">
+        <button class="raw-toggle" @click="showRaw = !showRaw">
+          {{ showRaw ? '▼' : '▶' }} RAW ({{ rawLines.length }})
+        </button>
+        <div v-if="showRaw" class="raw-body">
+          <pre class="raw-header">{{ rawFormatHeader }}</pre>
+          <pre
+            v-for="(entry, idx) in rawLines"
+            :key="idx"
+            class="raw-line"
+            :title="entry.fileId"
+          >{{ entry.line }}</pre>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -377,5 +457,58 @@ function alignmentLabel(n: number): string {
   width: 36px;
   height: 30px;
   font-size: 14px;
+}
+
+.raw-debug {
+  margin-top: 12px;
+  border-top: 1px dashed var(--n-border-color, #e0e0e6);
+  padding-top: 8px;
+}
+
+.raw-toggle {
+  background: none;
+  border: none;
+  color: var(--n-text-color-3, #888);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  padding: 2px 0;
+  user-select: none;
+}
+.raw-toggle:hover {
+  color: var(--n-text-color-2, #555);
+}
+
+.raw-body {
+  margin-top: 6px;
+  background: #f5f5f5;
+  padding: 6px 8px;
+  border-radius: 3px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.raw-header,
+.raw-line {
+  margin: 0;
+  padding: 2px 0;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre;
+  color: #333;
+  word-break: keep-all;
+}
+
+.raw-header {
+  color: #888;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 2px;
+  padding-bottom: 2px;
+}
+
+.raw-line {
+  cursor: text;
+  user-select: text;
 }
 </style>
