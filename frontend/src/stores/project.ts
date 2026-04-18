@@ -220,13 +220,41 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  // Single-flight map: concurrent requests for the same file key share one
+  // in-flight promise instead of spawning duplicate extractions.
+  const inFlightLoads = new Map<string, Promise<void>>()
+
+  function loadFileOnce(scanned: ScannedFile): Promise<void> {
+    const key = `file:${scanned.path}`
+    const existing = inFlightLoads.get(key)
+    if (existing) return existing
+    const p = loadFile(scanned).then(() => undefined).finally(() => inFlightLoads.delete(key))
+    inFlightLoads.set(key, p)
+    return p
+  }
+
+  function extractTrackOnce(videoPath: string, trackIndex: number, title: string): Promise<void> {
+    const key = `track:${videoPath}:${trackIndex}`
+    const existing = inFlightLoads.get(key)
+    if (existing) return existing
+    const p = extractTrack(videoPath, trackIndex, title).then(() => undefined).finally(() => inFlightLoads.delete(key))
+    inFlightLoads.set(key, p)
+    return p
+  }
+
+  // Generation counter — each new loadTranslationStyles call bumps it, and
+  // workers from a prior generation abort on next iteration. This prevents
+  // stale runs from continuing after the user changes the selection.
+  let loadGeneration = 0
+
   /** Load subtitles for all selected translations × checked episodes. */
   async function loadTranslationStyles(): Promise<void> {
     if (selectedTranslationKeys.value.length === 0) return
 
     const progress = useProgressStore()
+    const myGen = ++loadGeneration
 
-    // Count total loads needed upfront
+    // Snapshot the current selection and plan loads against it.
     const toLoad: Array<{ trans: Translation; inst: TranslationInstance }> = []
     for (const key of selectedTranslationKeys.value) {
       const trans = translations.value.find(t => t.key === key)
@@ -246,24 +274,31 @@ export const useProjectStore = defineStore('project', () => {
     sourceLoadingState.value = 'loading'
     progress.startLoad(`Loading styles`, toLoad.length)
 
-    // Parallelize extraction with a concurrency cap — disk I/O is the bottleneck,
-    // so N workers reading different files concurrently ~= N× faster.
     const CONCURRENCY = 4
     let done = 0
     let nextIndex = 0
 
     async function worker(): Promise<void> {
       while (true) {
+        if (myGen !== loadGeneration) return // selection changed — stop
+
         const i = nextIndex++
         if (i >= toLoad.length) return
         const { trans, inst } = toLoad[i]
 
+        // Another concurrent run may have already loaded this file — check first.
+        if (findLoadedForInstance(inst, trans.kind)) {
+          done++
+          progress.updateLoad(done, toLoad.length, `Skipped ${basename(inst.videoPath)}`)
+          continue
+        }
+
         try {
           if (trans.kind === 'external' && inst.subtitlePath) {
             const scanned = scannedFiles.value.find(f => f.path === inst.subtitlePath)
-            if (scanned) await loadFile(scanned)
+            if (scanned) await loadFileOnce(scanned)
           } else if (trans.kind === 'embedded' && inst.trackIndex !== undefined) {
-            await extractTrack(inst.videoPath, inst.trackIndex, inst.trackTitle || '')
+            await extractTrackOnce(inst.videoPath, inst.trackIndex, inst.trackTitle || '')
           }
         } catch (err) {
           debug.error(`load failed: ${basename(inst.videoPath)} — ${err}`)
@@ -280,10 +315,15 @@ export const useProjectStore = defineStore('project', () => {
         workers.push(worker())
       }
       await Promise.all(workers)
-      progress.updateLoad(toLoad.length, toLoad.length, 'Done')
+      if (myGen === loadGeneration) {
+        progress.updateLoad(toLoad.length, toLoad.length, 'Done')
+      }
     } finally {
-      sourceLoadingState.value = 'idle'
-      progress.finishLoad()
+      // Only clear loading state if we are still the latest run.
+      if (myGen === loadGeneration) {
+        sourceLoadingState.value = 'idle'
+        progress.finishLoad()
+      }
     }
   }
 
