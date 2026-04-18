@@ -425,10 +425,20 @@ export const useProjectStore = defineStore('project', () => {
     }
 
     if (changes.length > 0) {
+      // Log each change in raw "was -> now" format
+      for (const c of changes) {
+        debug.info(`edit: ${c.fileId}::${c.styleName}.${c.field}: ${formatValue(c.oldValue)} -> ${formatValue(c.newValue)}`)
+      }
       undoStore.push(`Update ${field}`, changes)
       dirty.value = true
       scheduleAutosave()
     }
+  }
+
+  function formatValue(v: unknown): string {
+    if (v === null || v === undefined) return String(v)
+    if (typeof v === 'object') return JSON.stringify(v)
+    return String(v)
   }
 
   function applyChanges(changes: UndoChange[], useOld: boolean): void {
@@ -444,6 +454,9 @@ export const useProjectStore = defineStore('project', () => {
   function applyUndo(): void {
     const entry = undoStore.undo()
     if (!entry) return
+    for (const c of entry.changes) {
+      debug.info(`undo: ${c.fileId}::${c.styleName}.${c.field}: ${formatValue(c.newValue)} -> ${formatValue(c.oldValue)}`)
+    }
     applyChanges(entry.changes, true)
     dirty.value = true
     scheduleAutosave()
@@ -452,6 +465,9 @@ export const useProjectStore = defineStore('project', () => {
   function applyRedo(): void {
     const entry = undoStore.redo()
     if (!entry) return
+    for (const c of entry.changes) {
+      debug.info(`redo: ${c.fileId}::${c.styleName}.${c.field}: ${formatValue(c.oldValue)} -> ${formatValue(c.newValue)}`)
+    }
     applyChanges(entry.changes, false)
     dirty.value = true
     scheduleAutosave()
