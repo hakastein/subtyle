@@ -300,44 +300,60 @@ func (a *App) ParseFile(path string) (sf *parser.SubtitleFile, err error) {
 	return sf, nil
 }
 
-// ExtractTrack extracts an embedded subtitle track from a video file,
-// parses it, caches it, and returns the SubtitleFile. trackTitle is the
-// human-readable name from container metadata, used for saving.
+// trackCachePaths returns (stylesPath, fullPath) in the extract dir.
+func (a *App) trackCachePaths(videoPath string, trackIndex int) (string, string) {
+	extractDir := filepath.Join(a.dataDir, "extracted")
+	base := fmt.Sprintf("%s_track%d", filepath.Base(videoPath), trackIndex)
+	stylesPath := filepath.Join(extractDir, base+".styles.ass")
+	fullPath := filepath.Join(extractDir, base+".ass")
+	return stylesPath, fullPath
+}
+
+// ExtractTrack does a fast styles-only extraction for an embedded track.
+// Only parses the MKV Tracks section (~100KB) so styles show up instantly.
+// Events are loaded on-demand via EnsureFullTrack when preview or save needs them.
+// Falls back to ffmpeg for non-MKV sources or when native parsing fails.
 func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) (sf *parser.SubtitleFile, err error) {
 	defer a.guard("ExtractTrack", &err)
 	if a.extractor == nil {
 		return nil, fmt.Errorf("ffmpeg not available")
 	}
 
-	// Store extracted track in app data dir so it persists for preview rendering
 	extractDir := filepath.Join(a.dataDir, "extracted")
 	if err := os.MkdirAll(extractDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating extract dir: %w", err)
 	}
 
 	stableID := fmt.Sprintf("%s:track:%d", filepath.Base(videoPath), trackIndex)
-	outPath := filepath.Join(extractDir, fmt.Sprintf("%s_track%d.ass", filepath.Base(videoPath), trackIndex))
+	stylesPath, fullPath := a.trackCachePaths(videoPath, trackIndex)
 
-	// Skip extraction if the output already exists and is newer than the source video.
-	// This avoids re-demuxing the entire MKV when the user reopens the same folder.
-	if existsAndFresh(outPath, videoPath) {
-		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: cache hit %s", filepath.Base(outPath)))
+	// Prefer full cache if already available — then we have events too for free.
+	parsePath := ""
+	hasEvents := false
+	if existsAndFresh(fullPath, videoPath) {
+		parsePath = fullPath
+		hasEvents = true
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: full cache hit %s", filepath.Base(fullPath)))
+	} else if existsAndFresh(stylesPath, videoPath) {
+		parsePath = stylesPath
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: styles cache hit %s", filepath.Base(stylesPath)))
 	} else {
-		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: extracting %s track %d", filepath.Base(videoPath), trackIndex))
-		// Try native MKV extraction first (fast: reads only the needed blocks).
-		// Fall back to ffmpeg if the file is not MKV or the track is not ASS/SSA.
-		nativeErr := mkv.ExtractASSTrack(videoPath, trackIndex, outPath)
-		if nativeErr == nil {
-			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("[mkv native] extracted %s track %d", filepath.Base(videoPath), trackIndex))
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: styles-only extract %s track %d", filepath.Base(videoPath), trackIndex))
+		if err := mkv.ExtractStylesOnly(videoPath, trackIndex, stylesPath); err == nil {
+			parsePath = stylesPath
+			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("[mkv native styles-only] %s track %d", filepath.Base(videoPath), trackIndex))
 		} else {
-			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: native mkv failed (%v), falling back to ffmpeg", nativeErr))
-			if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, outPath); err != nil {
+			// Fall back to full extraction (ffmpeg path works on any container).
+			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("ExtractTrack: native styles-only failed (%v), full ffmpeg extract", err))
+			if err := a.extractor.ExtractTrack(context.Background(), videoPath, trackIndex, fullPath); err != nil {
 				return nil, err
 			}
+			parsePath = fullPath
+			hasEvents = true
 		}
 	}
 
-	sf, err = parser.ParseFile(outPath)
+	sf, err = parser.ParseFile(parsePath)
 	if err != nil {
 		return nil, err
 	}
@@ -346,8 +362,49 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) 
 	sf.Source = "embedded"
 	sf.TrackID = trackIndex
 	sf.TrackTitle = trackTitle
+	_ = hasEvents // kept for clarity; callers check len(sf.Events)
 	a.parsedFiles[sf.ID] = sf
 	return sf, nil
+}
+
+// EnsureFullTrack upgrades a previously styles-only extracted track to include
+// all events. Call before preview or save for embedded tracks. No-op for
+// external files and already-full tracks.
+func (a *App) EnsureFullTrack(fileID string, videoPath string) (err error) {
+	defer a.guard("EnsureFullTrack", &err)
+	sf, ok := a.parsedFiles[fileID]
+	if !ok {
+		return fmt.Errorf("file %q not loaded", fileID)
+	}
+	if sf.Source != "embedded" || len(sf.Events) > 0 {
+		return nil
+	}
+	if videoPath == "" {
+		return fmt.Errorf("video path required for EnsureFullTrack(%q)", fileID)
+	}
+
+	_, fullPath := a.trackCachePaths(videoPath, sf.TrackID)
+
+	if !existsAndFresh(fullPath, videoPath) {
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("EnsureFullTrack: full extract %s", filepath.Base(videoPath)))
+		if err := mkv.ExtractASSTrack(videoPath, sf.TrackID, fullPath); err != nil {
+			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("EnsureFullTrack: native failed (%v), ffmpeg fallback", err))
+			if err := a.extractor.ExtractTrack(context.Background(), videoPath, sf.TrackID, fullPath); err != nil {
+				return err
+			}
+		}
+	} else {
+		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("EnsureFullTrack: cache hit %s", filepath.Base(fullPath)))
+	}
+
+	full, err := parser.ParseFile(fullPath)
+	if err != nil {
+		return fmt.Errorf("parse full: %w", err)
+	}
+	// Preserve user-modified styles; replace only events + path.
+	sf.Events = full.Events
+	sf.Path = fullPath
+	return nil
 }
 
 // existsAndFresh reports whether outPath exists and its mtime is >= the source's mtime.
@@ -388,6 +445,15 @@ func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []par
 		return nil, fmt.Errorf("file %q not found", fileID)
 	}
 
+	// Preview needs events (for the subtitles filter to have anything to render).
+	// Lazily upgrade a styles-only track on first preview request.
+	if orig.Source == "embedded" && len(orig.Events) == 0 {
+		if err := a.EnsureFullTrack(fileID, videoPath); err != nil {
+			return nil, fmt.Errorf("ensure full track: %w", err)
+		}
+		orig = a.parsedFiles[fileID]
+	}
+
 	modified := *orig
 	modified.Styles = styles
 
@@ -416,6 +482,14 @@ func (a *App) SaveFile(req SaveRequest) (string, error) {
 	sf, ok := a.parsedFiles[req.FileID]
 	if !ok {
 		return "", fmt.Errorf("file %q not found", req.FileID)
+	}
+
+	// Save needs events — upgrade the track if it was only styles-loaded.
+	if sf.Source == "embedded" && len(sf.Events) == 0 {
+		if err := a.EnsureFullTrack(req.FileID, req.VideoPath); err != nil {
+			return "", fmt.Errorf("ensure full track before save: %w", err)
+		}
+		sf = a.parsedFiles[req.FileID]
 	}
 
 	// Apply the provided styles.

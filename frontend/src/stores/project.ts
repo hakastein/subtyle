@@ -289,7 +289,7 @@ export const useProjectStore = defineStore('project', () => {
         // Another concurrent run may have already loaded this file — check first.
         if (findLoadedForInstance(inst, trans.kind)) {
           done++
-          progress.updateLoad(done, toLoad.length, `Skipped ${basename(inst.videoPath)}`)
+          progress.updateLoad(done, toLoad.length, `Loaded ${done}/${toLoad.length}`)
           continue
         }
 
@@ -305,7 +305,7 @@ export const useProjectStore = defineStore('project', () => {
         }
 
         done++
-        progress.updateLoad(done, toLoad.length, `Loading ${basename(inst.videoPath)}`)
+        progress.updateLoad(done, toLoad.length, `Loaded ${done}/${toLoad.length}`)
       }
     }
 

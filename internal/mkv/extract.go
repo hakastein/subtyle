@@ -46,12 +46,17 @@ type assEvent struct {
 	payload string // raw MKV payload (ReadOrder,Layer,Style,...)
 }
 
+// errStopEarly is a sentinel returned from handler methods to stop parsing
+// once the Tracks section has been fully read — useful for styles-only mode.
+var errStopEarly = errors.New("mkv: stop early after tracks")
+
 // assHandler implements mkvparse.Handler to extract a single ASS/SSA track.
 type assHandler struct {
 	mkvparse.DefaultHandler
 
 	// Configuration
 	targetSubIndex int // which subtitle-relative track to extract (0-based)
+	stylesOnly     bool // if true, stop parsing after Tracks section
 
 	// State: global
 	timestampScale uint64 // nanoseconds per tick, default 1_000_000
@@ -112,6 +117,12 @@ func (h *assHandler) HandleMasterEnd(id mkvparse.ElementID, info mkvparse.Elemen
 			}
 		}
 		h.inTrackEntry = false
+	case mkvparse.TracksElement:
+		// In styles-only mode, everything we need (CodecPrivate) is now in hand.
+		// Abort parsing to avoid reading the rest of the file.
+		if h.stylesOnly && h.targetFound {
+			return errStopEarly
+		}
 	case mkvparse.BlockGroupElement:
 		if h.inBlockGroup && h.pendingBlock != nil && h.targetFound {
 			h.saveBlockEvent(h.pendingBlock, h.pendingDuration)
@@ -229,6 +240,51 @@ func formatTime(ns int64) string {
 	mins := totalMin % 60
 	hours := totalMin / 60
 	return fmt.Sprintf("%d:%02d:%02d.%02d", hours, mins, secs, cs)
+}
+
+// ExtractStylesOnly writes an ASS file containing just the header + styles
+// (no events). Stops parsing right after the Tracks section, so it only reads
+// the first ~100KB of the video regardless of size. Much faster than
+// ExtractASSTrack when events aren't needed yet.
+func ExtractStylesOnly(videoPath string, trackIndex int, outputPath string) error {
+	handler := &assHandler{
+		targetSubIndex: trackIndex,
+		timestampScale: 1_000_000,
+		stylesOnly:     true,
+	}
+
+	err := mkvparse.ParsePath(videoPath, handler)
+	// errStopEarly is the expected happy-path when we've got what we need.
+	if err != nil && !errors.Is(err, errStopEarly) {
+		return fmt.Errorf("mkv parse error: %w", err)
+	}
+
+	if !handler.targetFound {
+		return fmt.Errorf("ASS/SSA subtitle track %d not found in %s", trackIndex, videoPath)
+	}
+
+	return writeHeaderOnly(outputPath, handler.targetCodecPrivate)
+}
+
+// writeHeaderOnly writes CodecPrivate (ASS header with [Script Info] and
+// [V4+ Styles]) plus an empty [Events] section. Used by ExtractStylesOnly.
+func writeHeaderOnly(outputPath string, codecPrivate []byte) error {
+	f, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("creating output file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := f.Write(codecPrivate); err != nil {
+		return fmt.Errorf("writing header: %w", err)
+	}
+	if len(codecPrivate) > 0 && codecPrivate[len(codecPrivate)-1] != '\n' {
+		if _, err := f.WriteString("\n"); err != nil {
+			return err
+		}
+	}
+	_, err = f.WriteString("\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+	return err
 }
 
 // ExtractASSTrack extracts an ASS/SSA subtitle track from an MKV file and
