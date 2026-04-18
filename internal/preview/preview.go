@@ -34,7 +34,7 @@ func NewGenerator(extractor *ffmpeg.Extractor) *Generator {
 // GenerateFrame cancels any pending generation, then renders a single frame
 // from videoPath at the given offset using the styles from subFile.
 // Returns the frame as a base64 PNG and the formatted timecode.
-func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile *parser.SubtitleFile, at time.Duration) (*FrameResult, error) {
+func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile *parser.SubtitleFile, at time.Duration, widthPx int) (*FrameResult, error) {
 	// Cancel previous generation if one is in progress.
 	g.mu.Lock()
 	if g.cancelFn != nil {
@@ -64,7 +64,7 @@ func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile
 	defer os.Remove(tmpPath)
 
 	// Extract the frame via ffmpeg.
-	base64PNG, err := g.extractor.ExtractFrame(genCtx, videoPath, tmpPath, at)
+	base64PNG, err := g.extractor.ExtractFrame(genCtx, videoPath, tmpPath, at, widthPx)
 	if err != nil {
 		return nil, fmt.Errorf("preview: extracting frame: %w", err)
 	}

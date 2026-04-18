@@ -7,10 +7,9 @@ import (
 )
 
 func TestBuildFrameArgs(t *testing.T) {
-	args := buildFrameArgs("/path/to/video.mkv", "/path/to/sub.ass", 90*time.Second)
+	args := buildFrameArgs("/path/to/video.mkv", "/path/to/sub.ass", 90*time.Second, 960)
 
-	// Should contain -ss, -i, -vf, -frames:v, -f, pipe:1
-	required := []string{"-ss", "-i", "/path/to/video.mkv", "-vf", "-frames:v", "1", "-f", "image2", "pipe:1"}
+	required := []string{"-i", "/path/to/video.mkv", "-vf", "-frames:v", "1", "-f", "image2", "pipe:1"}
 	for _, req := range required {
 		found := false
 		for _, arg := range args {
@@ -46,8 +45,7 @@ func TestEscapeFilterPath(t *testing.T) {
 }
 
 func TestBuildFrameArgsWindowsPath(t *testing.T) {
-	args := buildFrameArgs(`C:\Videos\ep01.mkv`, `C:\Temp\sub.ass`, 5*time.Second)
-	// The -vf arg should contain escaped path
+	args := buildFrameArgs(`C:\Videos\ep01.mkv`, `C:\Temp\sub.ass`, 5*time.Second, 1280)
 	var vfArg string
 	for i, a := range args {
 		if a == "-vf" && i+1 < len(args) {
@@ -57,12 +55,11 @@ func TestBuildFrameArgsWindowsPath(t *testing.T) {
 	if vfArg == "" {
 		t.Fatal("no -vf argument found")
 	}
-	// Should contain escaped colon and forward slashes
 	if !strings.Contains(vfArg, "C\\:") {
 		t.Errorf("-vf arg should escape colon: %q", vfArg)
 	}
-	if strings.Contains(vfArg, "\\T") {
-		t.Errorf("-vf arg should not have backslashes before path segments: %q", vfArg)
+	if !strings.Contains(vfArg, "scale=1280:-1") {
+		t.Errorf("-vf arg should include scale: %q", vfArg)
 	}
 }
 
@@ -170,5 +167,78 @@ func TestParseDuration_FromStderr(t *testing.T) {
 	expected := 23*time.Minute + 40*time.Second + 100*time.Millisecond
 	if d != expected {
 		t.Errorf("expected %v, got %v", expected, d)
+	}
+}
+
+func TestBuildFrameArgs_DoubleSeekAndScale(t *testing.T) {
+	args := buildFrameArgs("/videos/ep01.mkv", "/tmp/sub.ass", 30*time.Second, 960)
+
+	// Expect two -ss flags: fast before -i, fine after -i
+	ssCount := 0
+	var ssFast, ssFine string
+	iIdx := -1
+	for i, a := range args {
+		if a == "-ss" && i+1 < len(args) {
+			ssCount++
+			if iIdx == -1 {
+				ssFast = args[i+1]
+			} else {
+				ssFine = args[i+1]
+			}
+		}
+		if a == "-i" {
+			iIdx = i
+		}
+	}
+	if ssCount != 2 {
+		t.Fatalf("expected 2 -ss flags, got %d: %v", ssCount, args)
+	}
+	if iIdx < 0 {
+		t.Fatal("no -i flag found")
+	}
+
+	// 30s - 10s = 20s fast seek, then 10s fine seek
+	if ssFast != "20.000" {
+		t.Errorf("fast seek = %q, want 20.000", ssFast)
+	}
+	if ssFine != "10.000" {
+		t.Errorf("fine seek = %q, want 10.000", ssFine)
+	}
+
+	// Verify -vf has scale + subtitles
+	var vfArg string
+	for i, a := range args {
+		if a == "-vf" && i+1 < len(args) {
+			vfArg = args[i+1]
+		}
+	}
+	if !strings.Contains(vfArg, "scale=960:-1") {
+		t.Errorf("-vf missing scale: %q", vfArg)
+	}
+	if !strings.Contains(vfArg, "subtitles=") {
+		t.Errorf("-vf missing subtitles: %q", vfArg)
+	}
+}
+
+func TestBuildFrameArgs_SeekBelowThreshold(t *testing.T) {
+	// For a target before 10s, fast seek is 0
+	args := buildFrameArgs("/videos/ep01.mkv", "/tmp/sub.ass", 5*time.Second, 960)
+	var ssFast, ssFine string
+	first := true
+	for i, a := range args {
+		if a == "-ss" && i+1 < len(args) {
+			if first {
+				ssFast = args[i+1]
+				first = false
+			} else {
+				ssFine = args[i+1]
+			}
+		}
+	}
+	if ssFast != "0.000" {
+		t.Errorf("fast seek for 5s = %q, want 0.000", ssFast)
+	}
+	if ssFine != "5.000" {
+		t.Errorf("fine seek for 5s = %q, want 5.000", ssFine)
 	}
 }

@@ -27,8 +27,11 @@ func NewExtractor(binPath string) *Extractor {
 
 // ExtractFrame renders a video frame at the given time with subtitles burned in,
 // returning the frame as a base64-encoded PNG string.
-func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string, at time.Duration) (string, error) {
-	args := buildFrameArgs(videoPath, subPath, at)
+func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string, at time.Duration, widthPx int) (string, error) {
+	if widthPx < 1 {
+		widthPx = 960 // sensible default
+	}
+	args := buildFrameArgs(videoPath, subPath, at, widthPx)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
 	hideWindow(cmd)
 
@@ -53,9 +56,9 @@ func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string,
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// LastCommand returns the last ffmpeg command that was built for frame extraction (for debugging).
-func LastFrameCommand(binPath, videoPath, subPath string, at time.Duration) string {
-	args := buildFrameArgs(videoPath, subPath, at)
+// LastFrameCommand returns the ffmpeg command that would be built for frame extraction (for debugging).
+func LastFrameCommand(binPath, videoPath, subPath string, at time.Duration, widthPx int) string {
+	args := buildFrameArgs(videoPath, subPath, at, widthPx)
 	return binPath + " " + strings.Join(args, " ")
 }
 
@@ -130,13 +133,23 @@ func (e *Extractor) Diagnose(ctx context.Context) *DiagInfo {
 	return info
 }
 
-// buildFrameArgs constructs the ffmpeg argument list for frame extraction.
-func buildFrameArgs(videoPath, subPath string, at time.Duration) []string {
-	ts := formatDuration(at)
-	vf := fmt.Sprintf("subtitles='%s'", escapeFilterPath(subPath))
+// buildFrameArgs constructs ffmpeg arguments to render a single frame at `at`
+// with subtitles burned in, scaled to widthPx pixels wide.
+// Uses double-seek (fast -ss before -i, fine -ss after -i) to avoid decoding
+// the entire file from the start.
+func buildFrameArgs(videoPath, subPath string, at time.Duration, widthPx int) []string {
+	totalSec := at.Seconds()
+	fastSec := totalSec - 10.0
+	if fastSec < 0 {
+		fastSec = 0
+	}
+	fineSec := totalSec - fastSec
+
+	vf := fmt.Sprintf("scale=%d:-1,subtitles='%s'", widthPx, escapeFilterPath(subPath))
 	return []string{
+		"-ss", fmt.Sprintf("%.3f", fastSec),
 		"-i", videoPath,
-		"-ss", ts,
+		"-ss", fmt.Sprintf("%.3f", fineSec),
 		"-vf", vf,
 		"-frames:v", "1",
 		"-f", "image2",
