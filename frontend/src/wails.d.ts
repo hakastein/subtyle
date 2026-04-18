@@ -10,7 +10,7 @@ declare global {
           ScanFolder(dir: string): Promise<FolderScanResult>
           ParseFile(path: string): Promise<SubtitleFile>
           ExtractTrack(videoPath: string, trackIndex: number, trackTitle: string): Promise<SubtitleFile>
-          GeneratePreviewFrame(fileId: string, videoPath: string, styles: SubtitleStyle[], atMs: number): Promise<FrameResult>
+          GeneratePreviewFrame(fileId: string, videoPath: string, styles: SubtitleStyle[], atMs: number, widthPx: number): Promise<FrameResult>
           SaveFile(req: { fileId: string; videoPath: string; styles: SubtitleStyle[] }): Promise<string>
           SaveAll(requests: Array<{ fileId: string; videoPath: string; styles: SubtitleStyle[] }>): Promise<string[]>
           CheckAutosave(): Promise<ProjectState | null>
