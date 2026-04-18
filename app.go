@@ -10,6 +10,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"subtitles-editor/internal/crashlog"
 	"subtitles-editor/internal/ffmpeg"
 	i18nPkg "subtitles-editor/internal/i18n"
 	"subtitles-editor/internal/parser"
@@ -17,6 +18,22 @@ import (
 	"subtitles-editor/internal/project"
 	"subtitles-editor/internal/scan"
 )
+
+// guard wraps an App method's body with panic recovery. The recovered panic
+// is logged to crash.log and returned as a generic error so the frontend
+// still receives something (instead of the whole process dying).
+func (a *App) guard(name string, retErr *error) {
+	if r := recover(); r != nil {
+		err := crashlog.RecoverFrom(name, r)
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("[PANIC] %s: %v", name, r))
+			runtime.EventsEmit(a.ctx, "app:error", err.Error())
+		}
+		if retErr != nil {
+			*retErr = err
+		}
+	}
+}
 
 // App holds the application state and exposes methods to the frontend via Wails bindings.
 type App struct {
@@ -49,7 +66,13 @@ func newApp() *App {
 // initialization is launched in a goroutine so the UI is not blocked.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	go a.initFFmpeg()
+	crashlog.Init(a.dataDir)
+	go crashlog.Guard("initFFmpeg", a.initFFmpeg)
+}
+
+// GetCrashLogPath returns the path to the crash log file (if any).
+func (a *App) GetCrashLogPath() string {
+	return crashlog.Path()
 }
 
 // initFFmpeg attempts to find or download the ffmpeg binary and emits
@@ -118,7 +141,8 @@ func (a *App) OpenFolder() (string, error) {
 // ScanFolder scans the given directory for subtitle and video files.
 // For video files that have embedded ASS tracks, those tracks are added
 // as additional ScannedFile entries.
-func (a *App) ScanFolder(dir string) (*scan.FolderScanResult, error) {
+func (a *App) ScanFolder(dir string) (result *scan.FolderScanResult, err error) {
+	defer a.guard("ScanFolder", &err)
 	runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{
 		"stage":   "reading",
 		"current": 0,
@@ -126,14 +150,14 @@ func (a *App) ScanFolder(dir string) (*scan.FolderScanResult, error) {
 		"message": "Reading directory",
 	})
 
-	result, err := scan.ScanFolder(dir)
+	result, err = scan.ScanFolder(dir)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{"stage": "done"})
 		return nil, err
 	}
 
 	if a.extractor != nil {
-		if err := a.scanEmbeddedTracks(dir, result); err != nil {
+		if embedErr := a.scanEmbeddedTracks(dir, result); embedErr != nil {
 			runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{"stage": "done"})
 			return result, nil
 		}
@@ -192,8 +216,9 @@ func (a *App) scanEmbeddedTracks(dir string, result *scan.FolderScanResult) erro
 }
 
 // ParseFile parses an ASS/SSA subtitle file from the given path and caches it.
-func (a *App) ParseFile(path string) (*parser.SubtitleFile, error) {
-	sf, err := parser.ParseFile(path)
+func (a *App) ParseFile(path string) (sf *parser.SubtitleFile, err error) {
+	defer a.guard("ParseFile", &err)
+	sf, err = parser.ParseFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +229,8 @@ func (a *App) ParseFile(path string) (*parser.SubtitleFile, error) {
 // ExtractTrack extracts an embedded subtitle track from a video file,
 // parses it, caches it, and returns the SubtitleFile. trackTitle is the
 // human-readable name from container metadata, used for saving.
-func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) (*parser.SubtitleFile, error) {
+func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) (sf *parser.SubtitleFile, err error) {
+	defer a.guard("ExtractTrack", &err)
 	if a.extractor == nil {
 		return nil, fmt.Errorf("ffmpeg not available")
 	}
@@ -222,7 +248,7 @@ func (a *App) ExtractTrack(videoPath string, trackIndex int, trackTitle string) 
 		return nil, err
 	}
 
-	sf, err := parser.ParseFile(outPath)
+	sf, err = parser.ParseFile(outPath)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +274,8 @@ func sanitizeFilename(s string) string {
 
 // GeneratePreviewFrame renders a single preview frame for the given file
 // with the provided styles applied at the given time offset (in milliseconds).
-func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []parser.SubtitleStyle, atMs int64) (*preview.FrameResult, error) {
+func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []parser.SubtitleStyle, atMs int64) (result *preview.FrameResult, err error) {
+	defer a.guard("GeneratePreviewFrame", &err)
 	if a.previewGen == nil {
 		return nil, fmt.Errorf("ffmpeg not available")
 	}
@@ -264,7 +291,7 @@ func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []par
 	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("preview: file.Path=%q Source=%q styles=%d events=%d", modified.Path, modified.Source, len(modified.Styles), len(modified.Events)))
 
 	at := time.Duration(atMs) * time.Millisecond
-	result, err := a.previewGen.GenerateFrame(a.ctx, videoPath, &modified, at)
+	result, err = a.previewGen.GenerateFrame(a.ctx, videoPath, &modified, at)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("GeneratePreviewFrame error: %v", err))
 		return nil, err
