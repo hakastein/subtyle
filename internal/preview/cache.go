@@ -49,6 +49,24 @@ func (c *Cache) Read(key string) ([]byte, error) {
 	return os.ReadFile(c.Path(key))
 }
 
+// EnsureDir creates the cache directory if it does not exist.
+func (c *Cache) EnsureDir() error {
+	if err := os.MkdirAll(c.dir, 0755); err != nil {
+		return fmt.Errorf("cache: create dir %q: %w", c.dir, err)
+	}
+	return nil
+}
+
+// Touch refreshes the mtime of a key (so LRU treats it as recent) and runs
+// eviction. Use when the file was written externally (e.g., by ffmpeg).
+func (c *Cache) Touch(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	_ = os.Chtimes(c.Path(key), now, now)
+	c.evictIfNeeded()
+}
+
 // Write stores data under key. Creates the cache directory if needed.
 // Triggers LRU eviction after the write.
 func (c *Cache) Write(key string, data []byte) error {

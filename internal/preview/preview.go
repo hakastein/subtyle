@@ -75,13 +75,15 @@ func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile
 	basePath := g.cache.Path(key)
 
 	if !g.cache.Exists(key) {
+		// Ensure cache dir exists before ffmpeg writes to it
+		if err := g.cache.EnsureDir(); err != nil {
+			return nil, fmt.Errorf("preview: ensure cache dir: %w", err)
+		}
 		if err := g.extractor.ExtractBaseFrame(genCtx, videoPath, at, basePath); err != nil {
 			return nil, fmt.Errorf("preview: extract base frame: %w", err)
 		}
-		// Read back and rewrite through cache.Write so LRU accounting runs.
-		if data, err := os.ReadFile(basePath); err == nil {
-			_ = g.cache.Write(key, data)
-		}
+		// Trigger LRU accounting without re-writing the same bytes
+		g.cache.Touch(key)
 	}
 
 	base64PNG, err := g.extractor.OverlayFrame(genCtx, basePath, tmpSubPath, at)
