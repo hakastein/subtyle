@@ -5,9 +5,8 @@ export async function generatePreviewFrame(
   videoPath: string,
   styles: SubtitleStyle[],
   atMs: number,
-  widthPx: number,
 ): Promise<FrameResult> {
-  return window.go.main.App.GeneratePreviewFrame(fileId, videoPath, styles, atMs, widthPx)
+  return window.go.main.App.GeneratePreviewFrame(fileId, videoPath, styles, atMs)
 }
 
 export async function getVideoDuration(videoPath: string): Promise<number> { return window.go.main.App.GetVideoDuration(videoPath) }

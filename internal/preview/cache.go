@@ -27,9 +27,9 @@ func NewCache(dir string, maxBytes int64) *Cache {
 }
 
 // Key derives a stable filename (no extension) from the cache inputs.
-func (c *Cache) Key(videoPath string, at time.Duration, widthPx int) string {
+func (c *Cache) Key(videoPath string, at time.Duration) string {
 	h := sha1.New()
-	fmt.Fprintf(h, "%s|%d|%d", videoPath, at.Milliseconds(), widthPx)
+	fmt.Fprintf(h, "%s|%d", videoPath, at.Milliseconds())
 	return hex.EncodeToString(h.Sum(nil))
 }
 

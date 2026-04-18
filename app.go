@@ -248,7 +248,7 @@ func sanitizeFilename(s string) string {
 
 // GeneratePreviewFrame renders a single preview frame for the given file
 // with the provided styles applied at the given time offset (in milliseconds).
-func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []parser.SubtitleStyle, atMs int64, widthPx int) (*preview.FrameResult, error) {
+func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []parser.SubtitleStyle, atMs int64) (*preview.FrameResult, error) {
 	if a.previewGen == nil {
 		return nil, fmt.Errorf("ffmpeg not available")
 	}
@@ -261,10 +261,10 @@ func (a *App) GeneratePreviewFrame(fileID string, videoPath string, styles []par
 	modified := *orig
 	modified.Styles = styles
 
-	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("preview: file.Path=%q Source=%q styles=%d events=%d widthPx=%d", modified.Path, modified.Source, len(modified.Styles), len(modified.Events), widthPx))
+	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("preview: file.Path=%q Source=%q styles=%d events=%d", modified.Path, modified.Source, len(modified.Styles), len(modified.Events)))
 
 	at := time.Duration(atMs) * time.Millisecond
-	result, err := a.previewGen.GenerateFrame(a.ctx, videoPath, &modified, at, widthPx)
+	result, err := a.previewGen.GenerateFrame(a.ctx, videoPath, &modified, at)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("GeneratePreviewFrame error: %v", err))
 		return nil, err

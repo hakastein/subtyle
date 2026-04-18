@@ -7,7 +7,7 @@ import (
 )
 
 func TestBuildFrameArgs(t *testing.T) {
-	args := buildFrameArgs("/path/to/video.mkv", "/path/to/sub.ass", 90*time.Second, 960)
+	args := buildFrameArgs("/path/to/video.mkv", "/path/to/sub.ass", 90*time.Second)
 
 	required := []string{"-i", "/path/to/video.mkv", "-vf", "-frames:v", "1", "-f", "image2", "pipe:1"}
 	for _, req := range required {
@@ -45,7 +45,7 @@ func TestEscapeFilterPath(t *testing.T) {
 }
 
 func TestBuildFrameArgsWindowsPath(t *testing.T) {
-	args := buildFrameArgs(`C:\Videos\ep01.mkv`, `C:\Temp\sub.ass`, 5*time.Second, 1280)
+	args := buildFrameArgs(`C:\Videos\ep01.mkv`, `C:\Temp\sub.ass`, 5*time.Second)
 	var vfArg string
 	for i, a := range args {
 		if a == "-vf" && i+1 < len(args) {
@@ -58,8 +58,8 @@ func TestBuildFrameArgsWindowsPath(t *testing.T) {
 	if !strings.Contains(vfArg, "C\\:") {
 		t.Errorf("-vf arg should escape colon: %q", vfArg)
 	}
-	if !strings.Contains(vfArg, "scale=1280:-1") {
-		t.Errorf("-vf arg should include scale: %q", vfArg)
+	if !strings.Contains(vfArg, "subtitles=") {
+		t.Errorf("-vf arg should include subtitles: %q", vfArg)
 	}
 }
 
@@ -170,8 +170,8 @@ func TestParseDuration_FromStderr(t *testing.T) {
 	}
 }
 
-func TestBuildFrameArgs_DoubleSeekAndScale(t *testing.T) {
-	args := buildFrameArgs("/videos/ep01.mkv", "/tmp/sub.ass", 30*time.Second, 960)
+func TestBuildFrameArgs_DoubleSeek(t *testing.T) {
+	args := buildFrameArgs("/videos/ep01.mkv", "/tmp/sub.ass", 30*time.Second)
 
 	// Expect two -ss flags: fast before -i, fine after -i
 	ssCount := 0
@@ -205,15 +205,12 @@ func TestBuildFrameArgs_DoubleSeekAndScale(t *testing.T) {
 		t.Errorf("fine seek = %q, want 10.000", ssFine)
 	}
 
-	// Verify -vf has scale + subtitles
+	// Verify -vf has subtitles
 	var vfArg string
 	for i, a := range args {
 		if a == "-vf" && i+1 < len(args) {
 			vfArg = args[i+1]
 		}
-	}
-	if !strings.Contains(vfArg, "scale=960:-1") {
-		t.Errorf("-vf missing scale: %q", vfArg)
 	}
 	if !strings.Contains(vfArg, "subtitles=") {
 		t.Errorf("-vf missing subtitles: %q", vfArg)
@@ -222,7 +219,7 @@ func TestBuildFrameArgs_DoubleSeekAndScale(t *testing.T) {
 
 func TestBuildFrameArgs_SeekBelowThreshold(t *testing.T) {
 	// For a target before 10s, fast seek is 0
-	args := buildFrameArgs("/videos/ep01.mkv", "/tmp/sub.ass", 5*time.Second, 960)
+	args := buildFrameArgs("/videos/ep01.mkv", "/tmp/sub.ass", 5*time.Second)
 	var ssFast, ssFine string
 	first := true
 	for i, a := range args {
@@ -244,17 +241,24 @@ func TestBuildFrameArgs_SeekBelowThreshold(t *testing.T) {
 }
 
 func TestBuildBaseFrameArgs(t *testing.T) {
-	args := buildBaseFrameArgs("/videos/ep01.mkv", 30*time.Second, 960, "/tmp/base.png")
+	args := buildBaseFrameArgs("/videos/ep01.mkv", 30*time.Second, "/tmp/base.png")
 
-	// No -vf subtitles=, just scale
-	var vfArg string
+	// No -vf filter (source resolution, no subtitles)
 	for i, a := range args {
-		if a == "-vf" && i+1 < len(args) {
-			vfArg = args[i+1]
+		if a == "-vf" {
+			t.Errorf("unexpected -vf argument at index %d: %v", i, args)
 		}
 	}
-	if vfArg != "scale=960:-1" {
-		t.Errorf("-vf = %q, want scale=960:-1", vfArg)
+
+	// Should include -update 1 for single-image image2 muxer
+	hasUpdate := false
+	for i, a := range args {
+		if a == "-update" && i+1 < len(args) && args[i+1] == "1" {
+			hasUpdate = true
+		}
+	}
+	if !hasUpdate {
+		t.Error("expected -update 1 for single-image output")
 	}
 
 	// Last arg should be the output path

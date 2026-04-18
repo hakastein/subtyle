@@ -27,11 +27,8 @@ func NewExtractor(binPath string) *Extractor {
 
 // ExtractFrame renders a video frame at the given time with subtitles burned in,
 // returning the frame as a base64-encoded PNG string.
-func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string, at time.Duration, widthPx int) (string, error) {
-	if widthPx < 1 {
-		widthPx = 960 // sensible default
-	}
-	args := buildFrameArgs(videoPath, subPath, at, widthPx)
+func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string, at time.Duration) (string, error) {
+	args := buildFrameArgs(videoPath, subPath, at)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
 	hideWindow(cmd)
 
@@ -57,8 +54,8 @@ func (e *Extractor) ExtractFrame(ctx context.Context, videoPath, subPath string,
 }
 
 // LastFrameCommand returns the ffmpeg command that would be built for frame extraction (for debugging).
-func LastFrameCommand(binPath, videoPath, subPath string, at time.Duration, widthPx int) string {
-	args := buildFrameArgs(videoPath, subPath, at, widthPx)
+func LastFrameCommand(binPath, videoPath, subPath string, at time.Duration) string {
+	args := buildFrameArgs(videoPath, subPath, at)
 	return binPath + " " + strings.Join(args, " ")
 }
 
@@ -134,10 +131,10 @@ func (e *Extractor) Diagnose(ctx context.Context) *DiagInfo {
 }
 
 // buildFrameArgs constructs ffmpeg arguments to render a single frame at `at`
-// with subtitles burned in, scaled to widthPx pixels wide.
+// with subtitles burned in at the source resolution.
 // Uses double-seek (fast -ss before -i, fine -ss after -i) to avoid decoding
 // the entire file from the start.
-func buildFrameArgs(videoPath, subPath string, at time.Duration, widthPx int) []string {
+func buildFrameArgs(videoPath, subPath string, at time.Duration) []string {
 	totalSec := at.Seconds()
 	fastSec := totalSec - 10.0
 	if fastSec < 0 {
@@ -145,7 +142,7 @@ func buildFrameArgs(videoPath, subPath string, at time.Duration, widthPx int) []
 	}
 	fineSec := totalSec - fastSec
 
-	vf := fmt.Sprintf("scale=%d:-1,subtitles='%s'", widthPx, escapeFilterPath(subPath))
+	vf := fmt.Sprintf("subtitles='%s'", escapeFilterPath(subPath))
 	return []string{
 		"-ss", fmt.Sprintf("%.3f", fastSec),
 		"-i", videoPath,
@@ -158,8 +155,8 @@ func buildFrameArgs(videoPath, subPath string, at time.Duration, widthPx int) []
 }
 
 // buildBaseFrameArgs constructs arguments for extracting a base frame (no subtitles)
-// scaled to widthPx wide, written to outputPath. Uses double-seek.
-func buildBaseFrameArgs(videoPath string, at time.Duration, widthPx int, outputPath string) []string {
+// at source resolution, written to outputPath. Uses double-seek.
+func buildBaseFrameArgs(videoPath string, at time.Duration, outputPath string) []string {
 	totalSec := at.Seconds()
 	fastSec := totalSec - 10.0
 	if fastSec < 0 {
@@ -167,13 +164,12 @@ func buildBaseFrameArgs(videoPath string, at time.Duration, widthPx int, outputP
 	}
 	fineSec := totalSec - fastSec
 
-	vf := fmt.Sprintf("scale=%d:-1", widthPx)
 	return []string{
 		"-ss", fmt.Sprintf("%.3f", fastSec),
 		"-i", videoPath,
 		"-ss", fmt.Sprintf("%.3f", fineSec),
-		"-vf", vf,
 		"-frames:v", "1",
+		"-update", "1",
 		"-y",
 		outputPath,
 	}
@@ -197,8 +193,8 @@ func buildOverlayArgs(basePath, subPath string, at time.Duration) []string {
 }
 
 // ExtractBaseFrame renders a subtitle-less frame to disk.
-func (e *Extractor) ExtractBaseFrame(ctx context.Context, videoPath string, at time.Duration, widthPx int, outputPath string) error {
-	args := buildBaseFrameArgs(videoPath, at, widthPx, outputPath)
+func (e *Extractor) ExtractBaseFrame(ctx context.Context, videoPath string, at time.Duration, outputPath string) error {
+	args := buildBaseFrameArgs(videoPath, at, outputPath)
 	cmd := exec.CommandContext(ctx, e.binPath, args...)
 	hideWindow(cmd)
 	var stderr bytes.Buffer

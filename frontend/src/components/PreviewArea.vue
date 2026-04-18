@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { NSpin, NText } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
@@ -39,37 +39,6 @@ const activeFile = computed(() => projectStore.activeFile)
 // Debounce timer
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 
-const frameContainerRef = ref<HTMLElement | null>(null)
-const previewWidthPx = ref(960)
-let resizeObserver: ResizeObserver | null = null
-let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null
-
-onMounted(() => {
-  if (!frameContainerRef.value) return
-  resizeObserver = new ResizeObserver((entries) => {
-    const entry = entries[0]
-    if (!entry) return
-    const cssWidth = entry.contentRect.width
-    const pxWidth = Math.round(cssWidth * (window.devicePixelRatio || 1))
-    const rounded = Math.max(320, pxWidth - (pxWidth % 2))
-
-    if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
-    resizeDebounceTimer = setTimeout(() => {
-      if (rounded !== previewWidthPx.value) {
-        previewWidthPx.value = rounded
-        debug.info(`preview width resized → ${rounded}px`)
-        schedulePreview()
-      }
-    }, 200)
-  })
-  resizeObserver.observe(frameContainerRef.value)
-})
-
-onUnmounted(() => {
-  resizeObserver?.disconnect()
-  if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer)
-})
-
 function schedulePreview() {
   if (previewTimer) clearTimeout(previewTimer)
   previewTimer = setTimeout(() => {
@@ -100,7 +69,6 @@ async function generatePreview() {
       file.videoPath,
       file.modifiedStyles,
       atMs,
-      previewWidthPx.value,
     )
     debug.info(`preview: frame received, base64 length=${result.base64Png.length} tc=${result.timecode}`)
     previewStore.setFrame(result.base64Png, result.timecode)
@@ -165,7 +133,7 @@ watch(
       </NText>
     </div>
 
-    <div class="preview-frame-container" ref="frameContainerRef">
+    <div class="preview-frame-container">
       <div v-if="progressStore.preview.busy" class="preview-progress-bar">
         <div class="preview-progress-stripe"></div>
       </div>

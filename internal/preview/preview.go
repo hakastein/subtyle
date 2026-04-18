@@ -35,7 +35,7 @@ func NewGenerator(extractor *ffmpeg.Extractor, cache *Cache) *Generator {
 // GenerateFrame produces a frame with subtitles burned in. When the cache is
 // enabled, the base frame (no subtitles) is cached, and only the overlay pass
 // runs on subsequent style edits at the same timecode.
-func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile *parser.SubtitleFile, at time.Duration, widthPx int) (*FrameResult, error) {
+func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile *parser.SubtitleFile, at time.Duration) (*FrameResult, error) {
 	g.mu.Lock()
 	if g.cancelFn != nil {
 		g.cancelFn()
@@ -63,7 +63,7 @@ func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile
 
 	// If cache is disabled, fall back to single-pass rendering.
 	if g.cache == nil {
-		base64PNG, err := g.extractor.ExtractFrame(genCtx, videoPath, tmpSubPath, at, widthPx)
+		base64PNG, err := g.extractor.ExtractFrame(genCtx, videoPath, tmpSubPath, at)
 		if err != nil {
 			return nil, fmt.Errorf("preview: extract frame: %w", err)
 		}
@@ -71,11 +71,11 @@ func (g *Generator) GenerateFrame(ctx context.Context, videoPath string, subFile
 	}
 
 	// Two-pass with cache.
-	key := g.cache.Key(videoPath, at, widthPx)
+	key := g.cache.Key(videoPath, at)
 	basePath := g.cache.Path(key)
 
 	if !g.cache.Exists(key) {
-		if err := g.extractor.ExtractBaseFrame(genCtx, videoPath, at, widthPx, basePath); err != nil {
+		if err := g.extractor.ExtractBaseFrame(genCtx, videoPath, at, basePath); err != nil {
 			return nil, fmt.Errorf("preview: extract base frame: %w", err)
 		}
 		// Read back and rewrite through cache.Write so LRU accounting runs.

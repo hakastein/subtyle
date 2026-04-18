@@ -12,7 +12,7 @@ func TestCacheRoundTrip(t *testing.T) {
 	cache := NewCache(dir, 1024*1024)
 
 	payload := []byte("fake PNG data")
-	key := cache.Key("/videos/ep01.mkv", 21470*time.Millisecond, 960)
+	key := cache.Key("/videos/ep01.mkv", 21470*time.Millisecond)
 
 	if cache.Exists(key) {
 		t.Fatal("key should not exist yet")
@@ -39,18 +39,18 @@ func TestCacheKeyStability(t *testing.T) {
 	dir := t.TempDir()
 	cache := NewCache(dir, 1024*1024)
 
-	k1 := cache.Key("/videos/ep01.mkv", 1000*time.Millisecond, 960)
-	k2 := cache.Key("/videos/ep01.mkv", 1000*time.Millisecond, 960)
+	k1 := cache.Key("/videos/ep01.mkv", 1000*time.Millisecond)
+	k2 := cache.Key("/videos/ep01.mkv", 1000*time.Millisecond)
 	if k1 != k2 {
 		t.Errorf("same inputs produced different keys: %q vs %q", k1, k2)
 	}
 
-	k3 := cache.Key("/videos/ep01.mkv", 1000*time.Millisecond, 1280)
+	k3 := cache.Key("/videos/ep01.mkv", 2000*time.Millisecond)
 	if k1 == k3 {
-		t.Errorf("different widthPx should produce different keys")
+		t.Errorf("different time should produce different keys")
 	}
 
-	k4 := cache.Key("/videos/ep02.mkv", 1000*time.Millisecond, 960)
+	k4 := cache.Key("/videos/ep02.mkv", 1000*time.Millisecond)
 	if k1 == k4 {
 		t.Errorf("different videoPath should produce different keys")
 	}
@@ -60,9 +60,9 @@ func TestCacheLRUEviction(t *testing.T) {
 	dir := t.TempDir()
 	cache := NewCache(dir, 30) // very small limit so evictions fire
 
-	k1 := cache.Key("/a", 1*time.Second, 960)
-	k2 := cache.Key("/b", 1*time.Second, 960)
-	k3 := cache.Key("/c", 1*time.Second, 960)
+	k1 := cache.Key("/a", 1*time.Second)
+	k2 := cache.Key("/b", 1*time.Second)
+	k3 := cache.Key("/c", 1*time.Second)
 
 	data := make([]byte, 15)
 	for i := range data {
@@ -98,7 +98,7 @@ func TestCacheCreatesDir(t *testing.T) {
 	dir := filepath.Join(parent, "doesnotexist")
 	cache := NewCache(dir, 1024)
 
-	key := cache.Key("/v", time.Second, 960)
+	key := cache.Key("/v", time.Second)
 	if err := cache.Write(key, []byte("x")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
