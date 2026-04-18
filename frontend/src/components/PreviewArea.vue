@@ -5,6 +5,7 @@ import { NSpin, NText } from 'naive-ui'
 import { useProjectStore } from '@/stores/project'
 import { usePreviewStore } from '@/stores/preview'
 import { useDebugStore } from '@/stores/debug'
+import { useProgressStore } from '@/stores/progress'
 import * as editorService from '@/services/editor'
 import { durationToMs } from '@/services/types'
 import Timeline from './Timeline.vue'
@@ -14,6 +15,7 @@ const { t } = useI18n()
 const debug = useDebugStore()
 const projectStore = useProjectStore()
 const previewStore = usePreviewStore()
+const progressStore = useProgressStore()
 
 const currentEventIndex = ref(0)
 
@@ -91,6 +93,7 @@ async function generatePreview() {
 
   debug.info(`preview: requesting frame file=${file.id} video=${file.videoPath} at=${atMs}ms styles=${file.modifiedStyles.length}`)
   previewStore.setLoading(true)
+  progressStore.startPreview()
   try {
     const result = await editorService.generatePreviewFrame(
       file.id,
@@ -105,6 +108,8 @@ async function generatePreview() {
     const msg = err instanceof Error ? err.message : String(err)
     debug.error(`preview: frame generation failed — ${msg}`)
     previewStore.setLoading(false)
+  } finally {
+    progressStore.finishPreview()
   }
 }
 
@@ -161,6 +166,9 @@ watch(
     </div>
 
     <div class="preview-frame-container" ref="frameContainerRef">
+      <div v-if="progressStore.preview.busy" class="preview-progress-bar">
+        <div class="preview-progress-stripe"></div>
+      </div>
       <!-- Loading spinner -->
       <div v-if="previewStore.loading" class="preview-loading">
         <NSpin :size="40" />
@@ -300,5 +308,28 @@ watch(
   border-top: 1px solid var(--n-border-color, #e0e0e6);
   flex-shrink: 0;
   background: var(--n-color, #fff);
+}
+
+.preview-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: #0a2540;
+  overflow: hidden;
+  z-index: 5;
+}
+
+.preview-progress-stripe {
+  width: 35%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, #2080f0, transparent);
+  animation: preview-stripe 1.2s linear infinite;
+}
+
+@keyframes preview-stripe {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(285%); }
 }
 </style>
