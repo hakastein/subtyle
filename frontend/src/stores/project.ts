@@ -245,18 +245,41 @@ export const useProjectStore = defineStore('project', () => {
 
     sourceLoadingState.value = 'loading'
     progress.startLoad(`Loading styles`, toLoad.length)
-    try {
-      for (let i = 0; i < toLoad.length; i++) {
-        const { trans, inst } = toLoad[i]
-        progress.updateLoad(i, toLoad.length, `Loading ${basename(inst.videoPath)}`)
 
-        if (trans.kind === 'external' && inst.subtitlePath) {
-          const scanned = scannedFiles.value.find(f => f.path === inst.subtitlePath)
-          if (scanned) await loadFile(scanned)
-        } else if (trans.kind === 'embedded' && inst.trackIndex !== undefined) {
-          await extractTrack(inst.videoPath, inst.trackIndex, inst.trackTitle || '')
+    // Parallelize extraction with a concurrency cap — disk I/O is the bottleneck,
+    // so N workers reading different files concurrently ~= N× faster.
+    const CONCURRENCY = 4
+    let done = 0
+    let nextIndex = 0
+
+    async function worker(): Promise<void> {
+      while (true) {
+        const i = nextIndex++
+        if (i >= toLoad.length) return
+        const { trans, inst } = toLoad[i]
+
+        try {
+          if (trans.kind === 'external' && inst.subtitlePath) {
+            const scanned = scannedFiles.value.find(f => f.path === inst.subtitlePath)
+            if (scanned) await loadFile(scanned)
+          } else if (trans.kind === 'embedded' && inst.trackIndex !== undefined) {
+            await extractTrack(inst.videoPath, inst.trackIndex, inst.trackTitle || '')
+          }
+        } catch (err) {
+          debug.error(`load failed: ${basename(inst.videoPath)} — ${err}`)
         }
+
+        done++
+        progress.updateLoad(done, toLoad.length, `Loading ${basename(inst.videoPath)}`)
       }
+    }
+
+    try {
+      const workers: Promise<void>[] = []
+      for (let i = 0; i < Math.min(CONCURRENCY, toLoad.length); i++) {
+        workers.push(worker())
+      }
+      await Promise.all(workers)
       progress.updateLoad(toLoad.length, toLoad.length, 'Done')
     } finally {
       sourceLoadingState.value = 'idle'
@@ -347,17 +370,6 @@ export const useProjectStore = defineStore('project', () => {
       events: parsed.events,
     }
     loadedFiles.value.set(loaded.id, loaded)
-
-    if (scannedFile.videoPath) {
-      try {
-        const durationMs = await editorService.getVideoDuration(scannedFile.videoPath)
-        previewStore.videoDurationMs = durationMs
-        debug.info(`  video duration: ${previewStore.videoDurationMs}ms`)
-      } catch (err) {
-        debug.error(`  video duration failed: ${err}`)
-      }
-    }
-
     return loaded
   }
 
@@ -377,15 +389,6 @@ export const useProjectStore = defineStore('project', () => {
       events: parsed.events,
     }
     loadedFiles.value.set(loaded.id, loaded)
-
-    try {
-      const durationMs = await editorService.getVideoDuration(videoPath)
-      previewStore.videoDurationMs = durationMs
-      debug.info(`  video duration: ${durationMs}ms`)
-    } catch (err) {
-      debug.error(`  video duration failed: ${err}`)
-    }
-
     return loaded
   }
 

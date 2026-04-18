@@ -108,33 +108,74 @@ function formatFloat4g(n: number): string {
   return s
 }
 
-function rawStyleLine(style: {
+// Column order and names must match the Go writer (renderStyleLine + Format header).
+const rawColumns: Array<{ key: string; label: string }> = [
+  { key: 'name', label: 'Name' },
+  { key: 'fontName', label: 'Fontname' },
+  { key: 'fontSize', label: 'Fontsize' },
+  { key: 'primaryColour', label: 'PrimaryColour' },
+  { key: 'secondaryColour', label: 'SecondaryColour' },
+  { key: 'outlineColour', label: 'OutlineColour' },
+  { key: 'backColour', label: 'BackColour' },
+  { key: 'bold', label: 'Bold' },
+  { key: 'italic', label: 'Italic' },
+  { key: 'underline', label: 'Underline' },
+  { key: 'strikeout', label: 'StrikeOut' },
+  { key: 'scaleX', label: 'ScaleX' },
+  { key: 'scaleY', label: 'ScaleY' },
+  { key: 'spacing', label: 'Spacing' },
+  { key: 'angle', label: 'Angle' },
+  { key: 'borderStyle', label: 'BorderStyle' },
+  { key: 'outline', label: 'Outline' },
+  { key: 'shadow', label: 'Shadow' },
+  { key: 'alignment', label: 'Alignment' },
+  { key: 'marginL', label: 'MarginL' },
+  { key: 'marginR', label: 'MarginR' },
+  { key: 'marginV', label: 'MarginV' },
+  { key: 'encoding', label: 'Encoding' },
+]
+
+type AnyStyle = {
   name: string; fontName: string; fontSize: number
   bold: boolean; italic: boolean; underline: boolean; strikeout: boolean
   primaryColour: Color; secondaryColour: Color; outlineColour: Color; backColour: Color
   outline: number; shadow: number
   scaleX: number; scaleY: number; spacing: number; angle: number
   alignment: number; marginL: number; marginR: number; marginV: number
-}): string {
-  return (
-    `Style: ${style.name},${style.fontName},${style.fontSize.toFixed(0)},` +
-    `${formatASSColor(style.primaryColour)},${formatASSColor(style.secondaryColour)},` +
-    `${formatASSColor(style.outlineColour)},${formatASSColor(style.backColour)},` +
-    `${boolToASS(style.bold)},${boolToASS(style.italic)},${boolToASS(style.underline)},${boolToASS(style.strikeout)},` +
-    `${style.scaleX.toFixed(0)},${style.scaleY.toFixed(0)},` +
-    `${formatFloat4g(style.spacing)},${formatFloat4g(style.angle)},` +
-    `1,${formatFloat4g(style.outline)},${formatFloat4g(style.shadow)},` +
-    `${style.alignment},${style.marginL},${style.marginR},${style.marginV},1`
-  )
 }
 
-const rawFormatHeader =
-  'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding'
+function rawCells(style: AnyStyle): string[] {
+  return [
+    style.name,
+    style.fontName,
+    style.fontSize.toFixed(0),
+    formatASSColor(style.primaryColour),
+    formatASSColor(style.secondaryColour),
+    formatASSColor(style.outlineColour),
+    formatASSColor(style.backColour),
+    boolToASS(style.bold),
+    boolToASS(style.italic),
+    boolToASS(style.underline),
+    boolToASS(style.strikeout),
+    style.scaleX.toFixed(0),
+    style.scaleY.toFixed(0),
+    formatFloat4g(style.spacing),
+    formatFloat4g(style.angle),
+    '1', // BorderStyle — we always render as 1 (outline+shadow)
+    formatFloat4g(style.outline),
+    formatFloat4g(style.shadow),
+    String(style.alignment),
+    String(style.marginL),
+    String(style.marginR),
+    String(style.marginV),
+    '1', // Encoding — default
+  ]
+}
 
-const rawLines = computed(() =>
+const rawRows = computed(() =>
   selectedStyles.value.map(s => ({
     fileId: s.fileId,
-    line: rawStyleLine(s.style),
+    cells: rawCells(s.style),
   })),
 )
 
@@ -381,16 +422,25 @@ const showRaw = ref(false)
       <!-- RAW debug view (hidden by default) -->
       <div class="raw-debug">
         <button class="raw-toggle" @click="showRaw = !showRaw">
-          {{ showRaw ? '▼' : '▶' }} RAW ({{ rawLines.length }})
+          {{ showRaw ? '▼' : '▶' }} RAW ({{ rawRows.length }})
         </button>
         <div v-if="showRaw" class="raw-body">
-          <pre class="raw-header">{{ rawFormatHeader }}</pre>
-          <pre
-            v-for="(entry, idx) in rawLines"
-            :key="idx"
-            class="raw-line"
-            :title="entry.fileId"
-          >{{ entry.line }}</pre>
+          <div class="raw-scroll">
+            <table class="raw-table">
+              <thead>
+                <tr>
+                  <th class="col-file">File</th>
+                  <th v-for="col in rawColumns" :key="col.key">{{ col.label }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in rawRows" :key="idx">
+                  <td class="col-file" :title="row.fileId">{{ row.fileId }}</td>
+                  <td v-for="(cell, ci) in row.cells" :key="ci">{{ cell }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -482,33 +532,50 @@ const showRaw = ref(false)
 .raw-body {
   margin-top: 6px;
   background: #f5f5f5;
-  padding: 6px 8px;
+  padding: 6px;
   border-radius: 3px;
-  max-height: 200px;
+  max-height: 240px;
+  overflow: hidden;
+}
+
+.raw-scroll {
+  max-height: 228px;
   overflow: auto;
 }
 
-.raw-header,
-.raw-line {
-  margin: 0;
-  padding: 2px 0;
+.raw-table {
+  border-collapse: collapse;
   font-family: 'Consolas', 'Courier New', monospace;
   font-size: 10px;
   line-height: 1.4;
-  white-space: pre;
   color: #333;
-  word-break: keep-all;
+  white-space: nowrap;
 }
 
-.raw-header {
-  color: #888;
-  border-bottom: 1px solid #ddd;
-  margin-bottom: 2px;
-  padding-bottom: 2px;
-}
-
-.raw-line {
-  cursor: text;
+.raw-table th,
+.raw-table td {
+  padding: 2px 6px;
+  border: 1px solid #ddd;
   user-select: text;
+}
+
+.raw-table thead th {
+  position: sticky;
+  top: 0;
+  background: #e8e8e8;
+  color: #555;
+  font-weight: 600;
+  z-index: 1;
+}
+
+.raw-table tbody tr:nth-child(odd) {
+  background: #fafafa;
+}
+
+.raw-table .col-file {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #666;
 }
 </style>

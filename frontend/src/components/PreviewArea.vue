@@ -36,6 +36,27 @@ const currentStyle = computed(() => {
 
 const activeFile = computed(() => projectStore.activeFile)
 
+// Lazily fetch video duration for the active file (cache to avoid re-query)
+const durationCache = new Map<string, number>()
+watch(
+  () => activeFile.value?.videoPath,
+  async (videoPath) => {
+    if (!videoPath) return
+    if (durationCache.has(videoPath)) {
+      previewStore.videoDurationMs = durationCache.get(videoPath)!
+      return
+    }
+    try {
+      const ms = await editorService.getVideoDuration(videoPath)
+      durationCache.set(videoPath, ms)
+      previewStore.videoDurationMs = ms
+    } catch (err) {
+      debug.error(`video duration failed: ${err}`)
+    }
+  },
+  { immediate: true },
+)
+
 // Debounce timer
 let previewTimer: ReturnType<typeof setTimeout> | null = null
 
