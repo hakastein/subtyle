@@ -147,9 +147,12 @@ func (a *App) initFFmpeg() {
 
 // rescanEmbeddedAfterReady runs scanEmbeddedTracks for a folder and emits
 // the newly-discovered entries as a "scan:embedded-added" event so the
-// frontend can append them to its scan state.
+// frontend can append them to its scan state. Always emits a final
+// progress:scan "done" so the toolbar bar disappears.
 func (a *App) rescanEmbeddedAfterReady(dir string) {
 	runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("rescanning embedded tracks in %s", dir))
+	defer runtime.EventsEmit(a.ctx, "progress:scan", map[string]interface{}{"stage": "done"})
+
 	fresh := &scan.FolderScanResult{}
 	if err := a.scanEmbeddedTracks(dir, fresh); err != nil {
 		runtime.EventsEmit(a.ctx, "debug:log", fmt.Sprintf("rescan failed: %v", err))
