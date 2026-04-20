@@ -4,6 +4,8 @@
 
 **Batch style editor for ASS / SSA subtitles.**
 
+![Subtyle](program.png)
+
 You downloaded a season of anime. The subtitles work fine, but the *styles* are ugly — tiny font, bad color, awful outline, wrong position. You want to restyle all 12 episodes the same way without opening each file one by one. That's what Subtyle is for.
 
 It does **not** edit subtitle text, timing, karaoke, or typesetting. If you need those, use [Aegisub](https://aegisub.org/). Subtyle is the narrower, dumber, faster tool for one specific job.
@@ -16,6 +18,14 @@ It does **not** edit subtitle text, timing, karaoke, or typesetting. If you need
 - Renders a live preview frame from the actual video with your styles applied (via `ffmpeg` + `libass`)
 - Applies your styles across every file in the folder and saves them in one click
 - Bundles `ffmpeg` on demand — downloads it on first launch if you don't already have one
+
+## Before / after
+
+Same frame, same subtitle event — only the style changed. Applied to the whole season in one click.
+
+| Before                      | After                       |
+|-----------------------------|-----------------------------|
+| ![before](from.png)         | ![after](to.png)            |
 
 ## Why not Aegisub?
 
